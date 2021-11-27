@@ -1,0 +1,46 @@
+---
+title: "缺失率_年份_柱状图"
+output: html_document
+---
+
+```{r fig=TRUE, message = FALSE, warning = FALSE, cache = F, fig.height = 5, fig.width = 10, fig.align='center', fig.pos="H"}
+
+# 加载包
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+# 加载数据
+load(file = "../1.样本数据/1731国控站点污染物数据.RData")
+# 处理数据
+pollutants_data %>%
+  # 年份分组
+  group_by(year) %>%
+  # 计算各年份缺失率均值
+  summarise(missing = mean(missing, na.rm = T)) %>%
+  # 将年份转化为因子型
+  mutate(year=factor(year)) %>%
+  # 画图
+  ggplot() +
+  # 柱状图
+  geom_bar(aes(x = year, y = missing), 
+           stat = "identity", 
+           fill = "lightblue") +
+  # 文字
+  geom_text(aes(x = year, y = missing/2,
+            label = paste0(round(100 * missing, 2), "%")),
+            col = "black", size = 4) +
+  # 纵坐标改为百分数显示
+  scale_y_continuous(labels = scales::percent_format()) +
+  # 修改坐标轴标题
+  labs(x='', y='缺失率') +
+  # 修改字体及背景
+  theme(axis.text = element_text(face = "bold",size=10,family = "STXihei"), 
+        axis.title.y = element_text(face = "bold",size=12,family = "STXihei"),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"))
+```
+
+
+解读:各年污染物缺失率呈现先降低后上升的趋势，在2016年达到最低。

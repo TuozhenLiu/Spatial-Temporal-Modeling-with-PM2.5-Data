@@ -1,0 +1,225 @@
+---
+title: "Seasonal Model"
+author: "TuozhenLiu"
+date: "10/21/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(lubridate)
+library(tidyverse)
+library(TTR)
+
+source("code+data/code/simulator.R") # real data functions
+source("code+data/code/est_infer_func.R") # real data functions
+source("code+data/code/predictFunc2.R") # prediction functions (similar to kriging functions)
+
+#load("season_dat.RData")
+```
+
+```{r include=FALSE}
+# seasonal model
+# beijing
+dat = read.csv("hourlydat/city_pol_h.csv", stringsAsFactors = F, sep = ";")[1:500000,] %>%
+  mutate(time = as.POSIXct(time), pm2_5 = as.numeric(pm2_5)) %>%
+  select(station_code, time, pm2_5) %>%
+  # abnormal values to NA
+  mutate(pm2_5 = ifelse(pm2_5 <= 0, NA, pm2_5)) %>%
+  # one-year Beijing data from 2018.02 - 2019.02
+  filter(as.Date(time) > '2018-01-31',
+         as.Date(time) < '2019-02-01',
+         substr(station_code, 1, 3) == 'G11',
+         station_code != 'G110008', 
+         station_code != 'G110009')
+
+# long table to wide table
+dat_wide <- dat %>%
+  spread(key = station_code, value = pm2_5)%>%
+  mutate(season = ifelse(time<'2018-05-01', 'Spring', 
+                         ifelse(time<'2018-08-01', 'Summer', 
+                                ifelse(time<'2018-11-01', 'Fall', 'Winter'))))
+# impute the missing values
+impute_missing <- function(x) { 
+  if (sum(is.na(x))==0)
+    return(x)
+  ind <- which(is.na(x))
+  indm <- cbind(ind-3, ind-2, ind-1, ind+1, ind+2, ind+3)
+  indm[indm<1] <- 1
+  Xmat <- cbind(x[indm[,1]], x[indm[,2]], x[indm[,3]], 
+                x[indm[,4]], x[indm[,5]], x[indm[,6]])
+  x[ind] <- apply(Xmat, 1, mean, na.rm = T)
+  return(x)
+}
+
+# replace with the most recent none NA value
+impute_missing2 <- function(x) { 
+  if (sum(is.na(x))==0)
+    return(x)
+  ind <- which(is.na(x))
+  values <- x[ind[c(1, which(diff(ind)> 1)+1)] - 1]
+  len <- diff(c(1, which(diff(ind)> 1)+1, length(ind) + 1))
+  x[ind] <- rep(values, len)
+  return(x)
+}
+
+dat_wide2 <- apply(dat_wide, 2, impute_missing)
+dat_wide2 <- apply(dat_wide2, 2, impute_missing)
+dat_wide2 <- apply(dat_wide2, 2, impute_missing2)
+
+dat_wide3 = as.data.frame(dat_wide2)
+
+stations_loc = read.csv('hourlydat/station_location.csv')
+colnames(stations_loc)[1] = 'station_code'
+
+dist_loc2 <- stations_loc %>%
+  filter(substr(station_code, 1, 3) == 'G11',
+         station_code != 'G110008', 
+         station_code != 'G110009') %>% 
+  select(lon, lat) %>%
+  dist() %>% as.matrix()
+```
+
+
+```{r}
+# function to generate the predictive type2 kriging
+predKriging <- function(Ymat, dist_loc2, s_num) {
+  
+  Time <- ncol(Ymat)
+  pred_win <- ncol(Ymat) - 1
+  
+  Yt_pred1 <- matrix(0, nrow = 1, ncol = pred_win)
+  Yt_pred2 <- matrix(0, nrow = 1, ncol = pred_win)
+  
+  dist_train <- dist_loc2[-s_num, -s_num]
+  dist_pred  <- dist_loc2[-s_num, s_num, drop=FALSE]
+  
+  Y_train <- Ymat[-s_num, ]
+  
+  rhosMu <- estRhoMu(Y_train)
+  mus_est <- rhosMu[1,]
+  rhos_est <- rhosMu[2,]
+  
+  (thetaMu <- estThetaMu(mus_est, dist_train, infer = F,  cov.type = "exp"))
+  (thetaX <- estThetaRho(rhos_est, dist_train, infer = F, cov.type = "exp"))
+  (thetaE <- lse.theta(Y_train, dist_train, rhos = rhos_est, mu = mus_est, 
+                       infer = F, cov.type = "exp"))
+  
+  for (t in 2:(pred_win + 1)) {
+    Ymat_win <- Ymat[, 1:t]
+    
+    if (t %% 500 == 0) {
+      cat(t, " | ")
+    }
+    
+    Y_trainp <- Ymat_win[-s_num, ]
+    Yt_pred2[, (t-1)] <- predict.typeII(Y_trainp, rhos_est, mus_est, 
+                                        dist_train, as.vector(dist_pred), 
+                                        thetaE, thetaX, thetaMu, 
+                                        cov.type = "exp") 
+  }
+  
+  pred2_rmse <- sqrt(mean((Yt_pred2 - Ymat[s_num,1:(Time-1)])^2))
+  muY <- mean(Ymat[s_num,1:(Time-1)])
+  sse <- sqrt(mean((Ymat[s_num,1:(Time-1)] - muY)^2))
+      
+  cat("Pred RMSE R2: ", 1- (pred2_rmse/sse)^2, "\n")
+  
+  pred_data <- data.frame(type2=as.vector(Yt_pred2),
+                          true=Ymat[s_num,2:ncol(Ymat)])
+  return(pred_data)
+}
+```
+
+```{r}
+set.seed(42)
+
+pred <- list()
+j <- 1
+
+# iterating through all seasons
+for (s in c('Spring', 'Summer', 'Fall', 'Winter')) {
+  dat <- dat_wide3 %>%
+    filter(season == s) %>%
+    select(-time, -season)
+  
+  # detrending
+  name = colnames(dat)
+  #Ymat = log(t(dat))
+  Ymat <- matrix(log(as.numeric(t(dat))), 11, nrow(dat))
+  pm_sma <- as.numeric(SMA(ts(colMeans(Ymat), start=c(1)), n=24))
+  Ymat <- t(apply(Ymat[,!is.na(pm_sma)], 1, 
+                  function(x) x-pm_sma[!is.na(pm_sma)]))
+  
+  # estimate rhos and mu
+  rhosMu <- estRhoMu(Ymat)
+  print(s)
+  cat('$station (s)$ & ', paste(paste0('s', 1:11), collapse = ' & '), "\\\\ \n")
+  cat('$\\mu(s)$ & ', paste(round(rhosMu[1,],4), collapse = ' & '), "\\\\ \n")
+  cat('$\\rho(s)$ & ', paste(round(rhosMu[2,],4), collapse = ' & '), "\\\\ \n")
+  
+  model_name <- c("{\\sc Exponential}", "{\\sc Quadratic}")
+  cov.types <- c("exp", "quad")
+  lam <- 1
+  
+  for (i in 1:2)
+  {
+    if (i == 2)
+    {
+      cat(" & $\\mu$ & $\\phi_u$ & $\\alpha$ & $\\phi_x$ & $\\phi_e$ \\\\ \n")
+      cat("\\hline \n")
+    }
+    cov.type = cov.types[i]
+    
+    ### for estimation theta_x
+    (thetaMu = estThetaMu(rhosMu[1,], dist_loc2*lam, infer = T, p.value = T, cov.type = cov.type))
+    (thetaX = estThetaRho(rhosMu[2,], dist_loc2*lam, infer = T, p.value = T, cov.type = cov.type))
+    
+    ### for estimation theta_e
+    (thetaE = lse.theta(Ymat, dist_loc2*lam, rhos = rhosMu[2,], mu = rhosMu[1,], infer = T, p.value = T, cov.type = cov.type))
+    
+    ### output in latex format
+    theta = c(thetaMu[[1]][1:2], thetaX[[1]][1:2], thetaE[[1]][1])
+    theta_p = c(thetaMu[[4]][1:2], thetaX[[4]][1:2], thetaE[[4]][1])
+    pv_c = specify_decimal(theta_p, 3)
+    pv_c = paste0("(", pv_c, ")")
+    pv_c[theta_p<0.001] = "($<0.001$)"
+    
+    est = specify_decimal(theta, 5)
+    cat(model_name[i], "&", paste(est,  collapse = " & "), "\\\\ \n")
+    cat("& ", paste(pv_c,  collapse = " & "), "\\\\ \n")
+    cat("\\hline \n")
+  }
+  
+  pred[[j]] <- predKriging(Ymat, dist_loc2, 2)
+  j <- j + 1
+}
+save(pred, file = 'pred.RData')
+```
+
+```{r eval=FALSE}
+load("pred-bj.RData")
+s_num <- 2
+
+# get the original concentrations back
+seasons <- c('Spring', 'Summer', 'Fall', 'Winter')
+for (i in 1:4) {
+  dat <- dat_wide3 %>%
+    filter(season == seasons[i]) %>%
+    select(-time, -season)
+  
+  Ymat <- matrix(log(as.numeric(t(dat))), 11, nrow(dat))
+  pm_sma <- as.numeric(SMA(ts(colMeans(Ymat), start=c(1)), n=24))
+  
+  Time <- length(pm_sma[!is.na(pm_sma)])
+  
+  pred[[i]]$pred_ori <- exp(pred[[i]]$type2 + pm_sma[!is.na(pm_sma)][2:Time])
+  pred[[i]]$true_ori <- exp(Ymat[s_num, 25:ncol(Ymat)])
+  
+}
+
+save(pred, file = 'pred-bj-ori.RData')
+```
+
+

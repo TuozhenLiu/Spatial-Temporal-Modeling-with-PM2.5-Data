@@ -1,0 +1,1603 @@
+---
+title: "cv_citypollution"
+author: "邓煊洁"
+date: "2021/1/17"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(knitr)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(gridExtra)
+library(RColorBrewer)
+library(viridisLite)
+library(viridis)
+library(ggplot2)
+library(formattable)
+library(ggmap)
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+load("72city_2015-2020数据.RData")
+dat_month <- dat_month %>% filter(!city %in% c('瓦房店'))
+dat <-  dat_month %>% filter(province %in% c('河北省','辽宁省','山西省','黑龙江省','吉林省','内蒙古省','北京市','天津市'))
+dat$region <- ifelse(dat$province %in% c('北京市','天津市','河北省'),'京津冀',dat$province)
+dat$region <- ifelse(dat$region %in% c('内蒙古省'),'内蒙古',dat$region)
+dat$region <- factor(dat$region, levels = c('京津冀','山西省','辽宁省','吉林省','黑龙江省','内蒙古'))
+dat$cityname <- dat$city
+pollutants <- c("PM2.5", "PM10", "SO2", "NO2", "O3", "CO")
+
+```
+
+# 一、全国情况
+
+## 1.1 查看各地区城市数
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# 查看数据大致情况
+dat %>%
+  select(region,city) %>%
+  group_by(region) %>%
+  summarise(counts = length(unique(city))) %>%
+  as.data.frame() %>%
+  'colnames<-'(c('地区','城市数目')) %>%
+  kable(escape = F, caption = "表1：各地区包括的城市数量",  align = "c")
+
+```
+
+## 1.2 均值
+
+### 分年分地区
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, cache = F, fig.height = 9, fig.width = 12, fig.align='center'}
+dat %>%
+  group_by(region, year) %>%
+  # 计算各省份均值的均值
+  summarise(PM2.5 = mean(pm2_5_avg,na.rm = T),
+            PM10 = mean(pm10_avg,na.rm = T),
+            SO2 = mean(so2_avg,na.rm = T),
+            NO2 = mean(no2_avg,na.rm = T),
+            O3 = mean(o3_avg,na.rm = T),
+            CO = mean(co_avg,na.rm = T)) %>%
+  gather(key = pollutant, value = avg, -region, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) -> dat_temp
+
+p1 <- dat_temp %>%
+    filter(pollutant == "PM2.5") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM2.5"])+ min(dat_temp$avg[dat_temp$pollutant=="PM2.5"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM2.5") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p2 <- dat_temp %>%
+    filter(pollutant == "PM10") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM10"])+ min(dat_temp$avg[dat_temp$pollutant=="PM10"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM10") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p3 <- dat_temp %>%
+    filter(pollutant == "SO2") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="SO2"])+ min(dat_temp$avg[dat_temp$pollutant=="SO2"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="SO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p4 <- dat_temp %>%
+    filter(pollutant == "NO2") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="NO2"])+ min(dat_temp$avg[dat_temp$pollutant=="NO2"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="NO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p5 <- dat_temp %>%
+    filter(pollutant == "O3") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="O3"])+ min(dat_temp$avg[dat_temp$pollutant=="O3"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="O3") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p6 <- dat_temp %>%
+    filter(pollutant == "CO") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="CO"])+ min(dat_temp$avg[dat_temp$pollutant=="CO"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="CO") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+grid.arrange(p1, p2, p3, p4, p5, p6, layout_matrix = matrix(1:6, 3, 2))
+
+
+```
+
+### 每年PM2.5均值最高的前十个城市
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+dat %>%
+  # select year
+  filter(year=="2020") %>%
+  # groupby 省份
+  group_by(cityname) %>%
+  # 计算各省份均值的均值
+  summarise(region = region[1],
+            city = city[1],
+            #province = province[1],
+            pm2.5 = round(mean(pm2_5_avg,na.rm = T),2),
+            pm10 = round(mean(pm10_avg,na.rm = T),2),
+            so2 = round(mean(so2_avg,na.rm = T),2),
+            no2 = round(mean(no2_avg,na.rm = T),2),
+            o3 = round(mean(o3_avg,na.rm = T),2),
+            co = round(mean(co_avg,na.rm = T),2)) %>%
+  # 选择 top10
+  top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  select(-"city") %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+#  add_column(rank = 1:10, .before = "city") %>%
+  `colnames<-`(c("城市","地区",
+                 paste0(pollutants, "均值"))) %>%
+  kable(escape = F, caption = "2020年PM2.5均值最高10城市",  align = "c") #%>%
+#kable_styling("striped")
+
+```
+
+## 1.3 变异系数
+
+### 分年
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+dat %>%
+  #  filter(province %in% c('河北省','辽宁省','山西省','黑龙江省','吉林省','内蒙古')) %>%
+  # groupby 省份
+  group_by(year) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = year, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+#  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.45 ) +
+  scale_x_continuous(breaks = 2015:2020) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+```
+
+
+
+### 分地区
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+dat %>%
+  #  filter(province %in% c('河北省','辽宁省','山西省','黑龙江省','吉林省','内蒙古')) %>%
+  # groupby 省份
+  group_by(region) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -region) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = region, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  #  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.4 ) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+
+```
+
+
+### 分年分地区
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, cache = F, fig.height = 7, fig.width = 12, fig.align='center'}
+
+dat %>%
+#  filter(province %in% c('河北省','辽宁省','山西省','黑龙江省','吉林省','内蒙古')) %>%
+  # groupby 省份
+  group_by(region, year) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -region, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = region, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.45 ) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+```
+
+
+### 每年PM2.5变异系数最高的前十个城市
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+dat %>%
+  # select year
+  filter(year=="2020") %>%
+  # groupby 省份
+  group_by(cityname) %>%
+  # 计算各省份变异系数均值
+  summarise(region = region[1],
+            city = city[1],
+            #province = province[1],
+            pm2.5 = round(mean(pm2_5_cv,na.rm = T),2),
+            pm10 = round(mean(pm10_cv,na.rm = T),2),
+            so2 = round(mean(so2_cv,na.rm = T),2),
+            no2 = round(mean(no2_cv,na.rm = T),2),
+            o3 = round(mean(o3_cv,na.rm = T),2),
+            co = round(mean(co_cv,na.rm = T),2)) %>%
+  # 选择 top10
+  top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  select(-"city") %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+#  add_column(rank = 1:10, .before = "city") %>%
+  `colnames<-`(c("城市","地区",
+                 paste0(pollutants, "变异系数"))) %>%
+  kable(escape = F, caption = "2020年PM2.5变异系数最高10城市",  align = "c") #%>%
+#kable_styling("striped")
+
+```
+
+
+
+# 二、京津冀情况
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+datjjj <- dat %>%
+  filter(region %in% c('京津冀'))
+datjjj$city <- factor(datjjj$city, levels = c('北京','天津','石家庄','唐山',
+                                              '廊坊','保定','沧州','衡水','邢台',
+                                              '邯郸','张家口','承德','秦皇岛'))
+
+
+
+```
+
+## 2.1 均值
+
+
+### 分年分地区
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, cache = F, fig.height = 14, fig.width = 12, fig.align='center'}
+datjjj %>%
+  filter(region %in% c('京津冀')) %>%
+  group_by(city, year) %>%
+  # 计算各省份均值的均值
+  summarise(PM2.5 = mean(pm2_5_avg,na.rm = T),
+            PM10 = mean(pm10_avg,na.rm = T),
+            SO2 = mean(so2_avg,na.rm = T),
+            NO2 = mean(no2_avg,na.rm = T),
+            O3 = mean(o3_avg,na.rm = T),
+            CO = mean(co_avg,na.rm = T)) %>%
+  gather(key = pollutant, value = avg, -city, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) -> dat_temp
+
+p1 <- dat_temp %>%
+    filter(pollutant == "PM2.5") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM2.5"])+ min(dat_temp$avg[dat_temp$pollutant=="PM2.5"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM2.5") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p2 <- dat_temp %>%
+    filter(pollutant == "PM10") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM10"])+ min(dat_temp$avg[dat_temp$pollutant=="PM10"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM10") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p3 <- dat_temp %>%
+    filter(pollutant == "SO2") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="SO2"])+ min(dat_temp$avg[dat_temp$pollutant=="SO2"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="SO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p4 <- dat_temp %>%
+    filter(pollutant == "NO2") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="NO2"])+ min(dat_temp$avg[dat_temp$pollutant=="NO2"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="NO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p5 <- dat_temp %>%
+    filter(pollutant == "O3") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="O3"])+ min(dat_temp$avg[dat_temp$pollutant=="O3"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="O3") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p6 <- dat_temp %>%
+    filter(pollutant == "CO") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="CO"])+ min(dat_temp$avg[dat_temp$pollutant=="CO"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="CO") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+grid.arrange(p1, p2, p3, p4, p5, p6, layout_matrix = matrix(1:6, 3, 2))
+
+
+```
+
+### PM2.5均值排名
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+datjjj %>%
+  # select year
+  filter(year=="2020") %>%
+  # groupby 省份
+  group_by(cityname) %>%
+  # 计算各省份缺失率均值
+  summarise(region = region[1],
+            city = city[1],
+            #province = province[1],
+            pm2.5 = round(mean(pm2_5_avg,na.rm = T),2),
+            pm10 = round(mean(pm10_avg,na.rm = T),2),
+            so2 = round(mean(so2_avg,na.rm = T),2),
+            no2 = round(mean(no2_avg,na.rm = T),2),
+            o3 = round(mean(o3_avg,na.rm = T),2),
+            co = round(mean(co_avg,na.rm = T),2)) %>%
+  # 选择 top10
+ # top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  select(-"city") %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+#  add_column(rank = 1:10, .before = "city") %>%
+  `colnames<-`(c("城市","地区",
+                 paste0(pollutants, "均值"))) %>%
+  kable(escape = F, caption = "京津冀地区2020年PM2.5均值城市排名",  align = "c") #%>%
+#kable_styling("striped")
+
+```
+
+
+
+## 2.2 变异系数
+
+
+
+### 分年
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+
+datjjj %>%
+   filter(region %in% c('京津冀')) %>%
+  # groupby 省份
+  group_by(year) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = year, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  #  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.45 ) +
+  scale_x_continuous(breaks = 2015:2020) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+```
+
+
+### 分城市
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+
+# 分城市
+datjjj %>%
+   filter(region %in% c('京津冀')) %>%
+  # groupby 省份
+  group_by(city) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -city) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = city, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  #  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 ) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+```
+
+### 分年分城市
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, cache = F, fig.height = 12, fig.width = 12, fig.align='center'}
+
+datjjj %>%
+  #  filter(province %in% c('河北省','辽宁省','山西省','黑龙江省','吉林省','内蒙古')) %>%
+  # groupby 省份
+  group_by(city, year) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -city, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = city, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  facet_wrap(~year, nrow = 3,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 ) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+```
+
+
+### PM2.5变异系数排名
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+datjjj %>%
+  # select year
+  filter(year=="2020") %>%
+  # groupby 省份
+  group_by(cityname) %>%
+  # 计算各省份缺失率均值
+  summarise(region = region[1],
+            city = city[1],
+            #province = province[1],
+            pm2.5 = round(mean(pm2_5_cv,na.rm = T),2),
+            pm10 = round(mean(pm10_cv,na.rm = T),2),
+            so2 = round(mean(so2_cv,na.rm = T),2),
+            no2 = round(mean(no2_cv,na.rm = T),2),
+            o3 = round(mean(o3_cv,na.rm = T),2),
+            co = round(mean(co_cv,na.rm = T),2)) %>%
+  # 选择 top10
+ # top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  select(-"city") %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+#  add_column(rank = 1:10, .before = "city") %>%
+  `colnames<-`(c("城市","地区",
+                 paste0(pollutants, "变异系数"))) %>%
+  kable(escape = F, caption = "京津冀地区2020年PM2.5变异系数城市排名",  align = "c") #%>%
+#kable_styling("striped")
+
+```
+
+
+
+# 三、山西省情况
+
+## 3.1 均值
+
+### 分年分地区
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, cache = F, fig.height = 12, fig.width = 12, fig.align='center'}
+dat %>%
+  filter(region %in% c('山西省')) %>%
+  group_by(city, year) %>%
+  # 计算各省份均值的均值
+  summarise(PM2.5 = mean(pm2_5_avg,na.rm = T),
+            PM10 = mean(pm10_avg,na.rm = T),
+            SO2 = mean(so2_avg,na.rm = T),
+            NO2 = mean(no2_avg,na.rm = T),
+            O3 = mean(o3_avg,na.rm = T),
+            CO = mean(co_avg,na.rm = T)) %>%
+  gather(key = pollutant, value = avg, -city, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) -> dat_temp
+
+p1 <- dat_temp %>%
+    filter(pollutant == "PM2.5") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM2.5"])+ min(dat_temp$avg[dat_temp$pollutant=="PM2.5"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM2.5") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p2 <- dat_temp %>%
+    filter(pollutant == "PM10") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM10"])+ min(dat_temp$avg[dat_temp$pollutant=="PM10"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM10") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p3 <- dat_temp %>%
+    filter(pollutant == "SO2") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="SO2"])+ min(dat_temp$avg[dat_temp$pollutant=="SO2"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="SO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p4 <- dat_temp %>%
+    filter(pollutant == "NO2") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="NO2"])+ min(dat_temp$avg[dat_temp$pollutant=="NO2"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="NO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p5 <- dat_temp %>%
+    filter(pollutant == "O3") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="O3"])+ min(dat_temp$avg[dat_temp$pollutant=="O3"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="O3") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p6 <- dat_temp %>%
+    filter(pollutant == "CO") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="CO"])+ min(dat_temp$avg[dat_temp$pollutant=="CO"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="CO") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+grid.arrange(p1, p2, p3, p4, p5, p6, layout_matrix = matrix(1:6, 3, 2))
+
+
+```
+
+### PM2.5均值排名
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+dat %>%
+  filter(year=="2020",province %in% c('山西省')) %>%
+  # select year
+  filter(year=="2020") %>%
+  # groupby 省份
+  group_by(cityname) %>%
+  # 计算各省份缺失率均值
+  summarise(region = region[1],
+            city = city[1],
+            #province = province[1],
+            pm2.5 = round(mean(pm2_5_avg,na.rm = T),2),
+            pm10 = round(mean(pm10_avg,na.rm = T),2),
+            so2 = round(mean(so2_avg,na.rm = T),2),
+            no2 = round(mean(no2_avg,na.rm = T),2),
+            o3 = round(mean(o3_avg,na.rm = T),2),
+            co = round(mean(co_avg,na.rm = T),2)) %>%
+  # 选择 top10
+ # top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  select(-"city") %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+#  add_column(rank = 1:10, .before = "city") %>%
+  `colnames<-`(c("城市","地区",
+                 paste0(pollutants, "均值"))) %>%
+  kable(escape = F, caption = "山西省2020年PM2.5均值城市排名",  align = "c") #%>%
+#kable_styling("striped")
+
+```
+
+
+
+## 3.2 变异系数
+
+
+### 分年
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+
+dat %>%
+   filter(region %in% c('山西省')) %>%
+  # groupby 省份
+  group_by(year) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = year, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  #  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.4 ) +
+  scale_x_continuous(breaks = 2015:2020) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+```
+
+
+### 分城市
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+
+# 分城市
+dat %>%
+   filter(region %in% c('山西省')) %>%
+  # groupby 省份
+  group_by(city) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -city) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = city, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  #  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.4 ) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+```
+
+### 分年分城市
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, cache = F, fig.height = 12, fig.width = 12, fig.align='center'}
+
+dat %>%
+    filter(province %in% c('山西省')) %>%
+  # groupby 省份
+  group_by(city, year) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -city, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = city, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  facet_wrap(~year, nrow = 3, scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.4 ) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+```
+
+### PM2.5变异系数排名
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+dat %>%
+  # select year
+  filter(year=="2020",province %in% c('山西省')) %>%
+  # groupby 省份
+  group_by(cityname) %>%
+  # 计算各省份缺失率均值
+  summarise(region = region[1],
+            city = city[1],
+            #province = province[1],
+            pm2.5 = round(mean(pm2_5_cv,na.rm = T),2),
+            pm10 = round(mean(pm10_cv,na.rm = T),2),
+            so2 = round(mean(so2_cv,na.rm = T),2),
+            no2 = round(mean(no2_cv,na.rm = T),2),
+            o3 = round(mean(o3_cv,na.rm = T),2),
+            co = round(mean(co_cv,na.rm = T),2)) %>%
+  # 选择 top10
+ # top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  select(-"city") %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+#  add_column(rank = 1:10, .before = "city") %>%
+  `colnames<-`(c("城市","地区",
+                 paste0(pollutants, "变异系数"))) %>%
+  kable(escape = F, caption = "山西省2020年PM2.5变异系数城市排名",  align = "c") #%>%
+#kable_styling("striped")
+
+```
+
+# 四、辽宁省
+
+## 4.1 均值
+
+### 分年分地区
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, cache = F, fig.height = 12, fig.width = 12, fig.align='center'}
+dat %>%
+  filter(region %in% c('辽宁省')) %>%
+  group_by(city, year) %>%
+  # 计算各省份均值的均值
+  summarise(PM2.5 = mean(pm2_5_avg,na.rm = T),
+            PM10 = mean(pm10_avg,na.rm = T),
+            SO2 = mean(so2_avg,na.rm = T),
+            NO2 = mean(no2_avg,na.rm = T),
+            O3 = mean(o3_avg,na.rm = T),
+            CO = mean(co_avg,na.rm = T)) %>%
+  gather(key = pollutant, value = avg, -city, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) -> dat_temp
+
+p1 <- dat_temp %>%
+    filter(pollutant == "PM2.5") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM2.5"])+ min(dat_temp$avg[dat_temp$pollutant=="PM2.5"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM2.5") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p2 <- dat_temp %>%
+    filter(pollutant == "PM10") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM10"])+ min(dat_temp$avg[dat_temp$pollutant=="PM10"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM10") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p3 <- dat_temp %>%
+    filter(pollutant == "SO2") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="SO2"])+ min(dat_temp$avg[dat_temp$pollutant=="SO2"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="SO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p4 <- dat_temp %>%
+    filter(pollutant == "NO2") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="NO2"])+ min(dat_temp$avg[dat_temp$pollutant=="NO2"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="NO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p5 <- dat_temp %>%
+    filter(pollutant == "O3") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="O3"])+ min(dat_temp$avg[dat_temp$pollutant=="O3"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="O3") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p6 <- dat_temp %>%
+    filter(pollutant == "CO") %>%
+  # plot
+    ggplot(aes(x = year, y = city)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="CO"])+ min(dat_temp$avg[dat_temp$pollutant=="CO"]))) +
+  scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="CO") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+grid.arrange(p1, p2, p3, p4, p5, p6, layout_matrix = matrix(1:6, 3, 2))
+
+
+```
+
+### PM2.5均值排名
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+dat %>%
+  filter(year=="2020",province %in% c('辽宁省')) %>%
+  # select year
+  filter(year=="2020") %>%
+  # groupby 省份
+  group_by(cityname) %>%
+  # 计算各省份缺失率均值
+  summarise(region = region[1],
+            city = city[1],
+            #province = province[1],
+            pm2.5 = round(mean(pm2_5_avg,na.rm = T),2),
+            pm10 = round(mean(pm10_avg,na.rm = T),2),
+            so2 = round(mean(so2_avg,na.rm = T),2),
+            no2 = round(mean(no2_avg,na.rm = T),2),
+            o3 = round(mean(o3_avg,na.rm = T),2),
+            co = round(mean(co_avg,na.rm = T),2)) %>%
+  # 选择 top10
+ # top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  select(-"city") %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+#  add_column(rank = 1:10, .before = "city") %>%
+  `colnames<-`(c("城市","地区",
+                 paste0(pollutants, "均值"))) %>%
+  kable(escape = F, caption = "辽宁省2020年PM2.5均值城市排名",  align = "c") #%>%
+#kable_styling("striped")
+
+```
+
+
+## 4.2 变异系数
+
+### 分年
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+
+dat %>%
+   filter(region %in% c('辽宁省')) %>%
+  # groupby 省份
+  group_by(year) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = year, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  #  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.45 ) +
+  scale_x_continuous(breaks = 2015:2020) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+```
+
+
+### 分城市
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+
+# 分城市
+dat %>%
+   filter(region %in% c('辽宁省')) %>%
+  # groupby 省份
+  group_by(city) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -city) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = city, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  #  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.45 ) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+```
+
+### 分年分城市
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, cache = F, fig.height = 12, fig.width = 12, fig.align='center'}
+
+dat %>%
+    filter(province %in% c('辽宁省')) %>%
+  # groupby 省份
+  group_by(city, year) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(pm2_5_cv,na.rm = T),
+            PM10 = mean(pm10_cv,na.rm = T),
+            SO2 = mean(so2_cv,na.rm = T),
+            NO2 = mean(no2_cv,na.rm = T),
+            O3 = mean(o3_cv,na.rm = T),
+            CO = mean(co_cv,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -city, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = city, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  facet_wrap(~year, nrow = 3, scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.43 ) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+```
+
+### PM2.5变异系数排名
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+dat %>%
+  # select year
+  filter(year=="2020",province %in% c('辽宁省')) %>%
+  # groupby 省份
+  group_by(cityname) %>%
+  # 计算各省份缺失率均值
+  summarise(region = region[1],
+            city = city[1],
+            #province = province[1],
+            pm2.5 = round(mean(pm2_5_cv,na.rm = T),2),
+            pm10 = round(mean(pm10_cv,na.rm = T),2),
+            so2 = round(mean(so2_cv,na.rm = T),2),
+            no2 = round(mean(no2_cv,na.rm = T),2),
+            o3 = round(mean(o3_cv,na.rm = T),2),
+            co = round(mean(co_cv,na.rm = T),2)) %>%
+  # 选择 top10
+ # top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  select(-"city") %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+#  add_column(rank = 1:10, .before = "city") %>%
+  `colnames<-`(c("城市","地区",
+                 paste0(pollutants, "变异系数"))) %>%
+  kable(escape = F, caption = "辽宁省2020年PM2.5变异系数城市排名",  align = "c") #%>%
+#kable_styling("striped")
+
+```
+

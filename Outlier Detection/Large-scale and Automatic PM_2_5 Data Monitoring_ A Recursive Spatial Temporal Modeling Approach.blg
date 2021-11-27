@@ -1,0 +1,48 @@
+This is BibTeX, Version 0.99d (TeX Live 2018/W32TeX)
+Capacity: max_strings=100000, hash_size=100000, hash_prime=85009
+The top-level auxiliary file: Large-scale and Automatic PM_2_5 Data Monitoring_ A Recursive Spatial Temporal Modeling Approach.aux
+The style file: apalike.bst
+Database file #1: reference.bib
+Warning--there's a number but no volume in OECD
+You've used 26 entries,
+            1935 wiz_defined-function locations,
+            614 strings with 8723 characters,
+and the built_in function-call counts, 9456 in all, are:
+= -- 918
+> -- 433
+< -- 16
++ -- 160
+- -- 146
+* -- 780
+:= -- 1725
+add.period$ -- 79
+call.type$ -- 26
+change.case$ -- 203
+chr.to.int$ -- 26
+cite$ -- 27
+duplicate$ -- 343
+empty$ -- 593
+format.name$ -- 178
+if$ -- 1800
+int.to.chr$ -- 1
+int.to.str$ -- 0
+missing$ -- 16
+newline$ -- 133
+num.names$ -- 78
+pop$ -- 148
+preamble$ -- 1
+purify$ -- 203
+quote$ -- 0
+skip$ -- 277
+stack$ -- 0
+substring$ -- 554
+swap$ -- 33
+text.length$ -- 3
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 156
+warning$ -- 1
+while$ -- 66
+width$ -- 0
+write$ -- 333
+(There was 1 warning)

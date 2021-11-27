@@ -1,0 +1,1306 @@
+---
+title: "1731国控站点污染物数据质量报告"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+### 一、 总述
+&emsp;&emsp;此报告基于全国除港澳台以外**31**省市自治区**6种**大气污染物（PM2.5、PM10、SO2、NO2、CO、O3）浓度月度平均数据，对1731个国控站点进行数据质量评估。数据集共计91,420条记录，时间跨度为2013年-2018年，每条记录包含某站点某月的6种大气污染物平均浓度，标准差和缺失率。**本报告评估内容主要集中在数据缺失和污染物浓度波动水平两个方面。**  
+&emsp;&emsp;各国控站对大气污染物浓度监测的原始数据是**按小时记录的。**为探究污染物浓度数据缺失情况与波动水平随时间、季节变化情况，对各站点各污染物原始数据**按月份为单位分组**，并计算以下变量：
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(knitr)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(gridExtra)
+library(RColorBrewer)
+library(viridisLite)
+library(viridis)
+library(ggplot2)
+library(formattable)
+library(ggmap)
+#library(GetMap)
+```
+
+```{r eval=FALSE, include=FALSE}
+# 数据预处理
+path <- '数据和报告/2020数据/数据/'
+#load('数据和报告/xj的五地区/data_new.RData')
+load(paste0(path, 'data_new.RData'))
+data_new <- data_new %>% ungroup() %>%
+  mutate_all(~iconv(., 'GB18030','UTF-8'))
+
+files <- list.files(path, pattern = 'zz.*')
+data_new <- data.frame()
+for(i in 1:length(files)){
+  pollutant <- str_extract(files[i], '(?<=month_).*(?=\\.)')
+  if(i == 1){
+    dat <- read.csv(paste0(path, files[i]), sep = ',')
+    dat %>% select(-id) %>%
+      mutate(missing = 1 - valid_amount / total_amount,
+             std = as.numeric(std), 
+             cv = std / avg) %>%
+      rename_at(3:8, ~paste0(., '_', pollutant)) -> data_new
+  }
+  else{
+    dat <- read.csv(paste0(path, files[i]), sep = ';')
+    dat %>% select(-id) %>%
+      mutate(missing = 1 - valid_amount / total_amount, 
+             std = as.numeric(std), 
+             cv = std / avg) %>%
+      rename_at(3:8, ~paste0(., '_', pollutant)) %>%
+      full_join(data_new, .) -> data_new
+  }
+}
+data_new %<>% rowwise()%>%
+  mutate_at(all_of(c('missing_co', 'missing_no2', 'missing_o3', 'missing_pm10', 'missing_pm2_5', 'missing_so2')), ~ifelse(is.na(.), 1, .)) %>%
+  mutate(missing = mean(c(missing_co, missing_no2, missing_o3, missing_pm10, missing_pm2_5, missing_so2))) %>%
+  mutate(year = as.numeric(substr(month, 1, 4)), 
+         month = as.numeric(substr(month, 6, 7)))
+
+unique(data_new$station_code)
+
+data_old %<>%
+  select(1:44, year, province_code, province, city, city_full, city_old, station_name, type, district, lon, lat, area)
+
+data_old %>% 
+  select(station_code, province_code, province, city, city_full, city_old, station_name, type, district, lon, lat, area) %>% 
+  unique() %>%
+  left_join(data_new, .) %>%
+  filter(year >= 2019) %>%
+  bind_rows(data_old %>% mutate_at(2:45, as.numeric) %>% filter(year < 2019) %>% rename_at(c(5,11,17,23,29,35,41), ~str_replace(., 'amout', 'amount'))) -> data_merge
+
+data_new <- data_merge
+
+data_new %<>% filter(!is.na(area))
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+variables <- data.frame("变量名称" = c("当月应有观测数","当月实际观测数","当月污染物浓度观测缺失率",
+                                  "当月污染物浓度平均值","当月污染物浓度标准差",
+                                  "当月污染物浓度变异系数"),
+                       "单位" = c("次","次","--","$\\mu g/m^3$","$\\mu g/m^3$","--"),
+                       "变量含义及计算方法" = c("如对有31天的月份，当月应有观测$31\\times 24=744$次",
+                                                "当月应有观测数-当月缺失观测数",
+                                                "(当月应有观测数-当月实际观测数)/当月应有观测数",
+                                                "当月该种污染物浓度实际观测平均值",
+                                                "当月该种污染物浓度实际观测标准差",
+                                                "当月污染物浓度标准差/当月污染物浓度平均值"))
+variables %>%
+  kable(caption="表1：381国控站点污染物数据变量说明表", escape = FALSE)
+```
+
+&emsp;&emsp;在计算上述各变量时，对数据进行如下处理：
+  
+* 计算各站点各年的缺失率时，将年平均缺失率**高于30%**的站点的该年数据从数据集中剔除；  
+
+* 数据中所涉及观测缺失的含义为该站点未采集到当前小时该污染物浓度数据，即污染物浓度异常并不计为缺失；  
+
+* 变异系数（CV）反映污染物浓度波动水平，污染物浓度异常会对CV的计算造成影响，因此在计算CV时剔除浓度异常数据。
+
+```{r echo=FALSE,warning=FALSE, message=FALSE}
+load('72city_2015-2020数据.RData')
+dat_month %>%
+  ungroup() %>%
+  select(province, city) %>%
+  unique() %>%
+  group_by(province) %>%
+  summarise(n = n()) %>% view()
+```
+
+
+&emsp;&emsp;本报告中将31个省市自治区按照中国地理地区划分为7大地区（东北、华北、华中、华东、华南、西南、西北）进行研究，各地区包含的省市自治区及国控站数目如表2所示：
+
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+areas = c('东北', '华东', '华北', '华中', '华南', '西南', '西北')
+provinces = c('黑龙江、吉林、辽宁',
+              '上海、江苏、浙江、安徽、福建、江西、山东',
+              '北京、天津、山西、河北、内蒙古',
+              '河南、湖北、湖南',
+              '广东、广西、海南',
+              '重庆、四川、贵州、云南、西藏',
+              '陕西、甘肃、青海、宁夏、新疆')
+
+
+
+data_new %>%
+  group_by(area) %>%
+  summarise(counts = length(unique(station_code))) %>%
+  add_column(region = areas,
+             province = provinces) %>%
+  mutate(counts2 = (data_new %>% group_by(area) %>% filter(year %in% 2019:2020) %>% 
+           summarise(counts2 = length(unique(station_code))))$counts2) %>%
+  as.data.frame() %>%
+  select(region, province, counts) %>%
+  `colnames<-`(c('地区','省份','国控站总数')) %>%
+  kable(escape = F, caption = "表2：各地区划分及国控站数目统计",  align = "c")# %>%
+  #kable_styling("striped")
+```
+
+&emsp;&emsp;对数据集各年有效观测数进行统计，结果如表3所示：
+
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+data_new %>%
+  group_by(year) %>%
+  summarise(count = n()) %>%
+  `colnames<-`(c('年份','观察总数')) %>%
+  kable(escape = F, caption = "表3：所有国控站各年观测总计",  align = "c")# %>%
+  #kable_styling("striped")
+```
+
+
+### 二、缺失率整体分析
+#### 1. 各地区历年污染物平均缺失率概况
+
+&emsp;&emsp;这部分整体考察各地区数据缺失率的逐年变化规律，首先综合所有7个地区的数据，计算各年所有污染物平均缺失率如图1所示。**总体来看，年缺失率呈现先下降后上升的趋势**，2013年整体缺失率达到11.23%，缺失率在2016年达到最低，而在近两年缺失率又有所回弹。
+
+```{r fig=TRUE, echo = FALSE, message = FALSE, warning = FALSE, cache = F, fig.height = 5, fig.width = 10, fig.align='center', fig.pos="H", fig.cap="图1 各年份(2013-2018)缺失率总计"}
+data_new %>%
+  # groupby 省份
+  group_by(year) %>%
+  # 计算各省份缺失率均值
+  summarise(missing = mean(missing, na.rm = T)) %>%
+  mutate(year=factor(year)) %>%
+  ggplot() +
+    geom_bar(aes(x = year, y = missing), 
+             stat = "identity", 
+             fill = "lightblue") +
+    geom_text(aes(x = year, y = missing/2,
+              label = paste0(round(100 * missing, 2), "%")),
+              col = "black", size = 4) +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(x='', y='缺失率') +
+    #ggtitle("各年份(2013-2017)缺失率总计") +
+    theme(axis.text = element_text(face = "bold",size=10), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"))
+```
+
+&emsp;&emsp;下面考察不同年份各个地区污染物平均缺失率的数据，以观察不同地区之间数据缺失情况的差异，如图2所示。从图中可以看出：
+
+*	**各地区**的污染物平均缺失率也基本呈现逐年先下降后上升的趋势，2013年各地区缺失情况都较严重，华北、华南等四个地区缺失率均高于10%；
+
+* 2014年各地区缺失率有所下降，均降到10%以下；  
+
+* 2015、2016年大部分地区的污染物平均缺失率水平都有明显**下降**，稳定在2%-3%的水平；  
+
+* 2017、2018年各地区缺失率均呈现**上升**趋势，**东北**地区缺失率最为严重，在2018年缺失率超过10%；   
+
+* 将各地区数据缺失率进行比较，**华北**地区缺失率一直相对较低，数据完整性最好。
+
+```{r fig=TRUE, echo = FALSE, message = FALSE, warning = FALSE, cache = F, fig.height = 7, fig.width = 8, fig.align='center', fig.pos="H", fig.cap="图2 各地区分年份（2013-2018）缺失率统计"}
+data_new %>%
+  #filter(year != 2013) %>%
+  # groupby 省份
+  group_by(area, year) %>%
+  # 计算各省份缺失率均值
+  summarise(missing = mean(missing, na.rm = T)) %>%
+  mutate(area_1 = factor(area, 
+                            levels = c("东北", "华北", "华东",
+                                       "华南", "华中", "西北", 
+                                       "西南"))) %>%
+  # plot
+  ggplot() +
+    geom_bar(aes(x = area_1, y = missing), 
+              stat = "identity", 
+             fill = "lightblue") +
+    geom_text(aes(x = area_1, y = missing/2,
+              label = paste0(round(100 * missing, 1), "%")),
+              col = "black", size = 3) +
+    # group by year
+    facet_wrap(~year, nrow = 2,scales="free") +
+    # xticks & yticks
+    scale_y_continuous(limits = c(0,0.19),
+                       labels = scales::percent_format()) +
+    #labs & theme
+    labs(x='', y='缺失率') +
+    theme(axis.text = element_text(face = "bold",size=9), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"),
+          strip.text = element_text(face = "bold",size=12),
+          strip.background =element_rect(fill="white"))
+```
+
+####2. 各污染物历年平均缺失率概况
+* 综合2013-2018各污染物的缺失率数据，分别计算各污染物的平均缺失率，可以看出PM10的缺失情况最严重，其次为SO2，其他污染物平均缺失率均低于5%。 
+
+```{r fig=TRUE, echo = FALSE, message = FALSE, warning = FALSE, cache = F, fig.height = 7, fig.width = 8, fig.align='center', fig.pos="H"}
+pollutants <- c("PM2.5", "PM10", "SO2", "NO2", "O3", "CO")
+mean2 <- function(x){
+  mean(x,na.rm = T)
+}
+data_new %>%
+  select(missing_pm2_5, missing_pm10, missing_so2, missing_no2, missing_o3, missing_co) %>%
+  apply(2, mean2) %>%
+  as.data.frame() %>%
+  `colnames<-`(c('Avg')) %>%
+  add_column(Pollutant = pollutants, .before = "Avg") %>%
+  mutate(Avg = sprintf("%1.2f", Avg*100)) %>%
+  `colnames<-`(c('污染物','缺失率平均值(%)')) %>%
+  kable(escape = F, caption = "表4：各污染物缺失率历年平均值",  align = "c") #%>%
+  #kable_styling("striped")
+```
+
+* 各污染物历年平均缺失率也呈现先下降后上升的趋势，该趋势和所有污染物整体缺失率的变化趋势一致。注意到**PM10**近两年的缺失率**明显高于**其他污染物。
+```{r fig=TRUE, echo = FALSE, message = FALSE, warning = FALSE, cache = F, fig.height = 7, fig.width = 8, fig.align='center', fig.pos="H", fig.cap="图3 各污染物分年份（2013-2018）缺失率统计"}
+data_new %>%
+  # groupby 省份
+  group_by(year) %>%
+  # 计算各省份缺失率均值
+  summarise(PM2.5 = mean(missing_pm2_5,na.rm = T),
+            PM10 = mean(missing_pm10,na.rm = T),
+            SO2 = mean(missing_so2,na.rm = T),
+            NO2 = mean(missing_no2,na.rm = T),
+            O3 = mean(missing_o3,na.rm = T),
+            CO = mean(missing_co,na.rm = T)) %>%
+  gather(key = pollutant, value = missing, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot() +
+    geom_bar(aes(x = year, y = missing), 
+              stat = "identity", 
+             fill = "lightblue") +
+    geom_text(aes(x = year, y = missing/2,
+              label = paste0(round(100 * missing, 1), "%")),
+              col = "black", size = 4) +
+    # group by year
+    facet_wrap(~pollutant, nrow = 2,scales="free") +
+    # xticks & yticks
+    scale_y_continuous(limits = c(0,0.162),
+                       labels = scales::percent_format()) +
+    #labs & theme
+    labs(x='', y='缺失率') +
+    theme(axis.text = element_text(face = "bold",size=8), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"),
+          strip.text = element_text(face = "bold",size=12),
+          strip.background =element_rect(fill="white"))
+```
+
+# 变异系数临时
+# 整体
+```{r}
+pollutants <- c("PM2.5", "PM10", "SO2", "NO2", "O3", "CO")
+data_new %>%
+  # groupby 省份
+  group_by(year) %>%
+  # 计算各省份缺失率均值
+  summarise(PM2.5 = mean(as.numeric(cv_pm2_5), na.rm = T),
+            PM10 = mean(as.numeric(cv_pm10),na.rm = T),
+            SO2 = mean(as.numeric(cv_so2),na.rm = T),
+            NO2 = mean(as.numeric(cv_no2),na.rm = T),
+            O3 = mean(as.numeric(cv_o3),na.rm = T),
+            CO = mean(as.numeric(cv_co),na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot() +
+    geom_bar(aes(x = year, y = cv), 
+              stat = "identity", 
+             fill = "lightblue") +
+    geom_text(aes(x = year, y = cv/2,
+              label = sprintf("%1.2f", cv)),
+              col = "black", size = 3) +
+    # group by year
+    facet_wrap(~pollutant, nrow = 2,scales="free") +
+    # xticks & yticks
+    #scale_y_continuous(limits = c(0,0.162),
+    #                   labels = scales::percent_format()) +
+    #labs & theme
+    labs(x='', y='') +
+    theme(axis.text = element_text(face = "bold",size=8), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"),
+          strip.text = element_text(face = "bold",size=12),
+          strip.background =element_rect(fill="white"))
+```
+
+
+# 浓度临时
+# 整体
+```{r}
+pollutants <- c("PM2.5", "PM10", "SO2", "NO2", "O3", "CO")
+data_new %>%
+  # groupby 省份
+  group_by(year) %>%
+  # 计算各省份缺失率均值
+  summarise(PM2.5 = mean(as.numeric(avg_pm2_5), na.rm = T),
+            PM10 = mean(as.numeric(avg_pm10),na.rm = T),
+            SO2 = mean(as.numeric(avg_so2),na.rm = T),
+            NO2 = mean(as.numeric(avg_no2),na.rm = T),
+            O3 = mean(as.numeric(avg_o3),na.rm = T),
+            CO = mean(as.numeric(avg_co),na.rm = T)) %>%
+  gather(key = pollutant, value = avg, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot() +
+    geom_bar(aes(x = year, y = avg), 
+              stat = "identity", 
+             fill = "lightblue") +
+    geom_text(aes(x = year, y = avg/2,
+              label = sprintf("%1.2f", avg)),
+              col = "black", size = 3) +
+    # group by year
+    facet_wrap(~pollutant, nrow = 2,scales="free") +
+    # xticks & yticks
+    #scale_y_continuous(limits = c(0,0.162),
+    #                   labels = scales::percent_format()) +
+    #labs & theme
+    labs(x='', y='') +
+    theme(axis.text = element_text(face = "bold",size=8), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"),
+          strip.text = element_text(face = "bold",size=12),
+          strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+```
+
+# 分月份
+```{r}
+#pollutants_2 <- c("PM2.5", "PM10", "SO2", "NO2", "O3", "CO","AVG")
+data_new %>%
+  # groupby 月份
+  group_by(month) %>%
+  # 计算各省份缺失率均值
+  summarise(PM2.5 = mean(as.numeric(avg_pm2_5), na.rm = T),
+            PM10 = mean(as.numeric(avg_pm10),na.rm = T),
+            SO2 = mean(as.numeric(avg_so2),na.rm = T),
+            NO2 = mean(as.numeric(avg_no2),na.rm = T),
+            O3 = mean(as.numeric(avg_o3),na.rm = T),
+            CO = mean(as.numeric(avg_co),na.rm = T)) %>%
+  gather(key = pollutant, value = avg, -month) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants)) %>%
+  # plot
+  ggplot(aes(x = factor(month, levels = 1:12), y = pollutant)) +
+    geom_tile(aes(fill = avg)) +
+    # label every tile
+    geom_text(aes(label = round(avg, 2)), 
+              vjust = 1, col="black") +
+    # xticks & yticks
+    scale_x_discrete(expand=c(0,0)) + 
+    scale_y_discrete(expand=c(0,0)) +
+    # legend & theme
+    scale_fill_gradient2(name = "浓度", low = "darkgreen", 
+                         mid = "yellow", high ="red3",
+                         midpoint = 60) +
+    # labs & theme
+    labs(x='月份', y='污染物') +
+    theme(axis.text = element_text(face = "bold",size=10), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"))+
+  theme_classic(base_family = 'STXihei')
+```
+
+
+# 分地区
+
+```{r}
+pollutants_2 <- c("PM2.5", "PM10", "SO2", "NO2", "O3", "CO","AVG")
+data_new %>%
+  ungroup() %>%
+  # groupby 月份
+  group_by(year, area) %>%
+  # 计算各省份缺失率均值
+  mutate_at(3:45, ~as.numeric(.x)) %>%
+  summarise(PM2.5 = mean(avg_pm2_5,na.rm = T),
+            PM10 = mean(avg_pm10,na.rm = T),
+            SO2 = mean(avg_so2,na.rm = T),
+            NO2 = mean(avg_no2,na.rm = T),
+            O3 = mean(avg_o3,na.rm = T),
+            CO = mean(avg_co,na.rm = T)) %>%
+  gather(-(1:2), key = pollutant, value = avg) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants_2)) -> dat_temp
+
+p1 <- dat_temp %>%
+    filter(pollutant == "PM2.5") %>%
+  # plot
+    ggplot(aes(x = year, y = area)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM2.5"])+ min(dat_temp$avg[dat_temp$pollutant=="PM2.5"]))) +
+  #scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM2.5") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p2 <- dat_temp %>%
+    filter(pollutant == "PM10") %>%
+  # plot
+    ggplot(aes(x = year, y = area)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM10"])+ min(dat_temp$avg[dat_temp$pollutant=="PM10"]))) +
+  #scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM10") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p3 <- dat_temp %>%
+    filter(pollutant == "SO2") %>%
+  # plot
+    ggplot(aes(x = year, y = area)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="SO2"])+ min(dat_temp$avg[dat_temp$pollutant=="SO2"]))) +
+  #scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="SO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p4 <- dat_temp %>%
+    filter(pollutant == "NO2") %>%
+  # plot
+    ggplot(aes(x = year, y = area)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="NO2"])+ min(dat_temp$avg[dat_temp$pollutant=="NO2"]))) +
+  #scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="NO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p5 <- dat_temp %>%
+    filter(pollutant == "O3") %>%
+  # plot
+    ggplot(aes(x = year, y = area)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="O3"])+ min(dat_temp$avg[dat_temp$pollutant=="O3"]))) +
+ # scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="O3") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p6 <- dat_temp %>%
+    filter(pollutant == "CO") %>%
+  # plot
+    ggplot(aes(x = year, y = area)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="CO"])+ min(dat_temp$avg[dat_temp$pollutant=="CO"]))) +
+ # scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="CO") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+grid.arrange(p1, p2, p3, p4, p5, p6, layout_matrix = matrix(1:6, 3, 2))
+```
+
+# 五地区浓度临时
+```{r}
+pollutants_2 <- c("PM2.5", "PM10", "SO2", "NO2", "O3", "CO","AVG")
+
+data_new %>%
+  filter(province %in% c("北京",'天津','河北','河南','山西','山东','陕西')) %>%
+  filter(city %in% c('北京','天津','石家庄','唐山',
+                     '廊坊','保定','沧州','衡水','邢台',
+                     '邯郸','张家口','承德','秦皇岛'
+                     
+                     ,"安阳", "鹤壁", "焦作",
+                       "开封", "洛阳", "濮阳", 
+                       "三门峡","新乡","郑州",
+                     
+                     '晋城','晋中','临汾','吕梁','太原','阳泉','运城','长治',
+                     
+                     '滨州','德州','菏泽','济南','济宁','莱芜','聊城','泰安','淄博',
+                     
+                     '西安','宝鸡','咸阳','安康','铜川','渭南','延安','汉中','榆林','商洛'
+                     )) %>%
+  mutate(region = case_when(province %in% c('北京', '天津', '河北') ~ '京津冀',
+                            province %in% c('河南','山西','山东','陕西') ~ province)) %>%
+  filter(!is.na(region)) %>%
+  ungroup() %>%
+  # groupby 月份
+  group_by(year, region) %>%
+  # 计算各省份缺失率均值
+  mutate_at(3:45, ~as.numeric(.x)) %>%
+  summarise(PM2.5 = mean(avg_pm2_5,na.rm = T),
+            PM10 = mean(avg_pm10,na.rm = T),
+            SO2 = mean(avg_so2,na.rm = T),
+            NO2 = mean(avg_no2,na.rm = T),
+            O3 = mean(avg_o3,na.rm = T),
+            CO = mean(avg_co,na.rm = T)) %>%
+  gather(-(1:2), key = pollutant, value = avg) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants_2)) -> dat_temp
+
+p1 <- dat_temp %>%
+    filter(pollutant == "PM2.5") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM2.5"])+ min(dat_temp$avg[dat_temp$pollutant=="PM2.5"]))) +
+  #scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM2.5") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p2 <- dat_temp %>%
+    filter(pollutant == "PM10") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="PM10"])+ min(dat_temp$avg[dat_temp$pollutant=="PM10"]))) +
+  #scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="PM10") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p3 <- dat_temp %>%
+    filter(pollutant == "SO2") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="SO2"])+ min(dat_temp$avg[dat_temp$pollutant=="SO2"]))) +
+  #scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="SO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p4 <- dat_temp %>%
+    filter(pollutant == "NO2") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="NO2"])+ min(dat_temp$avg[dat_temp$pollutant=="NO2"]))) +
+  #scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="NO2") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p5 <- dat_temp %>%
+    filter(pollutant == "O3") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="O3"])+ min(dat_temp$avg[dat_temp$pollutant=="O3"]))) +
+ # scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="O3") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+
+p6 <- dat_temp %>%
+    filter(pollutant == "CO") %>%
+  # plot
+    ggplot(aes(x = year, y = region)) +
+    geom_tile(aes(fill = avg)) +
+  # label every tile
+    geom_text(aes(label = sprintf("%1.2f", avg)), 
+              vjust = 1, col="black", size = 3) +
+  # legend & theme
+  scale_fill_gradient2(name = "均值", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.5 * 
+                      (max(dat_temp$avg[dat_temp$pollutant=="CO"])+ min(dat_temp$avg[dat_temp$pollutant=="CO"]))) +
+ # scale_x_continuous(breaks = 2015:2020)+
+  labs(x='', y="CO") +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+grid.arrange(p1, p2, p3, p4, p5, p6, layout_matrix = matrix(1:6, 3, 2))
+```
+
+# 五地区变异系数临时
+```{r}
+data_new %>%
+  mutate(region = case_when(province %in% c('北京', '天津', '河北') ~ '京津冀',
+                            province %in% c('山西', '辽宁', '吉林', '黑龙江', '内蒙古') ~ province)) %>%
+  filter(!is.na(region)) %>%
+  group_by(region) %>%
+  mutate_at(3:45, ~as.numeric(.x)) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(cv_pm2_5,na.rm = T),
+            PM10 = mean(cv_pm10,na.rm = T),
+            SO2 = mean(cv_so2,na.rm = T),
+            NO2 = mean(cv_no2,na.rm = T),
+            O3 = mean(cv_o3,na.rm = T),
+            CO = mean(cv_co,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -region) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants_2)) %>%
+  # plot
+  ggplot(aes(x = region, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  #  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.7) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+data_new %>%
+  mutate(region = case_when(province %in% c('北京', '天津', '河北') ~ '京津冀',
+                            province %in% c('山西', '辽宁', '吉林', '黑龙江', '内蒙古') ~ province)) %>%
+  filter(!is.na(region)) %>%
+  group_by(year) %>%
+  mutate_at(3:45, ~as.numeric(.x)) %>%
+  # 计算各省份变异系数均值
+  summarise(PM2.5 = mean(cv_pm2_5,na.rm = T),
+            PM10 = mean(cv_pm10,na.rm = T),
+            SO2 = mean(cv_so2,na.rm = T),
+            NO2 = mean(cv_no2,na.rm = T),
+            O3 = mean(cv_o3,na.rm = T),
+            CO = mean(cv_co,na.rm = T)) %>%
+  gather(key = pollutant, value = cv, -year) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants_2)) %>%
+  # plot
+  ggplot(aes(x = year, y = pollutant)) +
+  geom_tile(aes(fill = cv)) +
+  # label every tile
+  geom_text(aes(label = sprintf("%1.2f", cv)), 
+            vjust = 1, col="black", size = 3) +
+  # groupby year
+  #  facet_wrap(~year, nrow = 2,scales = "free") +
+  # legend & theme
+  scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                       mid = "yellow", high ="red3",
+                       midpoint = 0.7) +
+  labs(x='', y='污染物') +
+  theme(axis.text = element_text(face = "bold",size=7), 
+        axis.title.y = element_text(face = "bold",size=12),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))+
+  theme_classic(base_family = 'STXihei')
+
+```
+
+
+#### 3. 污染物平均缺失率季节分布
+
+&emsp;&emsp;AVG表示：当月七地区六种污染物的缺失率均值（计算时取算术平均数）；
+
+&emsp;&emsp;图4绘制的各污染物不同季节的平均缺失率统计图，从缺失率的季节分布来看，**春季（2月份和3月份）**缺失率**较低**，**夏秋季节（8月份和9月份）**缺失率**较高**。 
+
+```{r fig=TRUE, echo = FALSE, message = FALSE, warning = FALSE, cache = F, fig.height = 5, fig.width = 8, fig.align='center', fig.pos="H", fig.cap="图4 各月份各污染物缺失率统计"}
+pollutants_2 <- c("PM2.5", "PM10", "SO2", "NO2", "O3", "CO","AVG")
+data_new %>%
+  # groupby 月份
+  group_by(month) %>%
+  # 计算各省份缺失率均值
+  summarise(PM2.5 = mean(missing_pm2_5,na.rm = T),
+            PM10 = mean(missing_pm10,na.rm = T),
+            SO2 = mean(missing_so2,na.rm = T),
+            NO2 = mean(missing_no2,na.rm = T),
+            O3 = mean(missing_o3,na.rm = T),
+            CO = mean(missing_co,na.rm = T),
+            AVG = mean(missing,na.rm = T)) %>%
+  gather(key = pollutant, value = missing, -month) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants_2)) %>%
+  # plot
+  ggplot(aes(x = factor(month), y = pollutant)) +
+    geom_tile(aes(fill = missing*100)) +
+    # label every tile
+    geom_text(aes(label = sprintf("%1.2f", missing*100)), 
+              vjust = 1, col="black") +
+    # xticks & yticks
+    scale_x_discrete(expand=c(0,0)) + 
+    scale_y_discrete(expand=c(0,0)) +
+    # legend & theme
+    scale_fill_gradient2(name = "缺失率(%)", low = "darkgreen", 
+                         mid = "yellow", high ="red3",
+                         midpoint = 5.5) +
+    # labs & theme
+    labs(x='月份', y='污染物') +
+    theme(axis.text = element_text(face = "bold",size=10), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"))
+```
+
+#### 4. 各地区不同污染物缺失率平均水平比较
+
+&emsp;&emsp;AVG是指：各地区2013-2018年六种污染物缺失率的均值（计算时取算术平均数）；
+
+&emsp;&emsp;在考察了各污染物平均缺失率的季节分布后，为对比各地区不同污染物的缺失情况，绘制7个地区2013年到2018年的整体缺失率如图5。平均缺失率**最高**的地区是**东北**（整体缺失率6.05%，PM10、SO2缺失较为严重），其余依次为华南（5.65%）、华东和西南（5.61%）、西北（5.31%）、华中（4.66%），缺失率**最低**的为**华北**地区（3.70%）。从下图也可看出各地区的同种污染物的缺失率水平接近，说明**数据完整性和污染物种类关系不大**。
+
+```{r fig=TRUE, echo = FALSE, message = FALSE, warning = FALSE, cache = F, fig.height = 5, fig.width = 8, fig.align='center', fig.pos="H", fig.cap="图5 各地区分污染物平均缺失率统计（2013-2018）"}
+a = data_new %>%
+  # groupby 省份
+  group_by(area) %>%
+  # 计算各省份缺失率均值
+  summarise(PM2.5 = mean(missing_pm2_5,na.rm = T),
+            PM10 = mean(missing_pm10,na.rm = T),
+            SO2 = mean(missing_so2,na.rm = T),
+            NO2 = mean(missing_no2,na.rm = T),
+            O3 = mean(missing_o3,na.rm = T),
+            CO = mean(missing_co,na.rm = T),
+            AVG = mean(missing,na.rm = T)) %>%
+  gather(key = pollutant, value = missing, -area) %>%
+  mutate(pollutant = factor(pollutant, 
+                            levels = pollutants_2))
+a%>%
+  ggplot(aes(x = area, y = pollutant)) +
+    geom_tile(aes(fill = missing*100)) +
+    # label every tile
+    geom_text(aes(label = sprintf("%1.2f", missing*100)), 
+              vjust = 1, col="black") +
+    scale_y_discrete(expand=c(0,0)) +
+    # legend & theme
+    scale_fill_gradient2(name = "缺失率(%)", low = "darkgreen", mid = "yellow",
+                            high ="red3",midpoint = 5.5) +
+    labs(x='', y='污染物') +
+    theme(axis.text = element_text(face = "bold",size=10), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"))
+```
+
+&emsp;&emsp;图6详细列举了7个地区分污染物的逐年缺失情况。可以看出：  
+
+* **2013年各个地区**的数据缺失情况都较为**严重**，半数以上污染物缺失率超过10%，2014年起得到了较大的改善；  
+
+* **2016年**各地区各污染物缺失达到**最低**，大部分污染物缺失率低于3%；  
+
+* 2017和2018年各地区污染物缺失率出现**回弹**，其中**东北地区**缺失率上升最明显；  
+
+* 2017和2018年各地区**PM10**缺失均较为严重，较之前年份明显上升，很多地区都出现PM10缺失率高于10%的情况，以**东北、华南**两个地区最为严重。
+
+```{r fig=TRUE, echo = FALSE, message = FALSE, warning = FALSE, cache = F, fig.height = 7, fig.width = 14, fig.align='center', fig.pos="H", fig.cap="图6 各地区分污染物缺失率（%）逐年变化情况"}
+data_new %>%
+    # groupby 省份
+    group_by(area, year) %>%
+    # 计算各省份缺失率均值
+    summarise(PM2.5 = mean(missing_pm2_5,na.rm = T),
+            PM10 = mean(missing_pm10,na.rm = T),
+            SO2 = mean(missing_so2,na.rm = T),
+            NO2 = mean(missing_no2,na.rm = T),
+            O3 = mean(missing_o3,na.rm = T),
+            CO = mean(missing_co,na.rm = T)) %>%
+    gather(key = pollutant, value = missing, -area, -year) %>%
+    mutate(pollutant = factor(pollutant, 
+                              levels = pollutants)) %>%
+    # plot
+    ggplot(aes(x = area, y = pollutant)) +
+      geom_tile(aes(fill = missing*100)) +
+      # label every tile
+      geom_text(aes(label = sprintf("%1.2f", missing*100)), 
+                vjust = 1, col="black") +
+      facet_wrap(~year, nrow = 2,scale="free") +
+      # legend & theme
+      scale_fill_gradient2(name = "缺失率（%）", low = "darkgreen", mid = "yellow",
+                            high ="red3",midpoint = 7) +
+      labs(x='', y='污染物') +
+      theme(axis.text = element_text(face = "bold",size=10), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"),
+          strip.text = element_text(face = "bold",size=12),
+          strip.background =element_rect(fill="white"))
+```
+
+### 三、变异系数(CV)整体分析
+#### 1. 各地区不同污染物浓度波动水平比较
+
+&emsp;&emsp;对不同污染物缺失率平均水平进行分析后，我们通过计算各种污染物浓度的变异系数比较不同量纲的指标的波动程度。波动程度用**变异系数(CV)**衡量，变异系数是指原始数据的标准差与其平均数的比值，本报告中即：**污染物浓度标准差/污染物浓度均值**。各个地区不同污染物变异系数的逐年变化情况如图7所示。从图7可以看出：
+
+* 大多数污染物浓度的波动程度并未随着年份呈现明显的上升或下降的趋势，SO2的浓度波动程度在各地区有逐年减缓的趋势；  
+
+* 6种污染物中，**SO2**的波动幅度**相对较大**，**CO**的波动幅度**相对较小；** 
+
+* **东北、西北、华北**地区，污染物浓度（尤其是PM10和PM2.5）波动幅度相对较大；  
+
+* 有一些值得注意的现象，比如**华南地区CO**浓度的波动程度明显低于其他地区并且也小于该地区的其他污染物；**2018年华北地区的SO2**波动幅度**明显上升。**
+
+```{r fig=TRUE, echo = FALSE, message = FALSE, warning = FALSE, cache = F, fig.height = 7, fig.width = 12, fig.align='center', fig.pos="H", fig.cap="图7 各地区分污染物波动程度（变异系数）逐年变化情况"}
+data_new %>%
+    # groupby 省份
+    group_by(area, year) %>%
+    # 计算各省份变异系数均值
+    summarise(PM2.5 = mean(cv_pm2_5,na.rm = T),
+              PM10 = mean(cv_pm10,na.rm = T),
+              SO2 = mean(cv_so2,na.rm = T),
+              NO2 = mean(cv_no2,na.rm = T),
+              O3 = mean(cv_o3,na.rm = T),
+              CO = mean(cv_co,na.rm = T)) %>%
+    gather(key = pollutant, value = cv, -area, -year) %>%
+    mutate(pollutant = factor(pollutant, 
+                              levels = pollutants)) %>%
+    # plot
+    ggplot(aes(x = area, y = pollutant)) +
+      geom_tile(aes(fill = cv)) +
+      # label every tile
+      geom_text(aes(label = sprintf("%1.2f", cv)), 
+                vjust = 1, col="black") +
+      # groupby year
+      facet_wrap(~year, nrow = 2,scales = "free") +
+      # legend & theme
+      scale_fill_gradient2(name = "变异系数", low = "chartreuse4", 
+                           mid = "yellow", high ="red3",
+                           midpoint = 0.73 ) +
+      labs(x='', y='污染物') +
+      theme(axis.text = element_text(face = "bold",size=10), 
+          axis.title.y = element_text(face = "bold",size=12),
+          panel.background = element_rect(fill = "transparent"),
+          panel.border=element_rect(fill='transparent', 
+                                    color='transparent'),
+          axis.line = element_line(color = "black"),
+          strip.text = element_text(face = "bold",size=12),
+          strip.background =element_rect(fill="white"))
+```
+
+### 四、缺失率&变异系数(CV)站点排名
+
+&emsp;&emsp;了解各地区污染物缺失和数据波动整体情况之后，为了详细探究数据缺失和波动情况的空间分布规律，我们依照各个站点的平均缺失率以及PM2.5变异系数对站点进行排名，结果如下：
+
+#####1. 2015-2018年各站点污染物缺失率排名
+
+&emsp;&emsp;根据缺失率排名结果，可以得到以下结论：  
+
+* 2015年平均缺失率较高的站点集中在**华东和华北**地区，华北地区中位于河北的站点较多；    
+
+* 2016年平均缺失率最高的地区是**华东**，其中位于江苏的站点数目最多；  
+
+* 在2017年站点缺失率排名中，大部分的站点位于**东北**，且全部集中在**辽宁省**；  
+
+* 2018年缺失率最高的前19个站点主要分布在**东北和华北**地区，其中东北地区以**辽宁**为主，华北地区的站点则全部位于**天津**。    
+
+* **总体而言，在2015、2016两年华东地区的数据完整性较差，但在后两年数据质量逐渐提升，而2017、2018两年东北地区的辽宁省数据缺失率居高不下，数据质量相对较差。**  
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, cache = F}
+data_new %>%
+  # select year
+  filter(year=="2015") %>%
+  # groupby 省份
+  group_by(station_name) %>%
+  # 计算各省份缺失率均值
+  summarise(area = area[1],
+            province = province[1],
+            missing = round(mean(missing,na.rm = T)*100,2),
+            pm2.5 = round(mean(missing_pm2_5,na.rm = T)*100,2),
+            pm10 = round(mean(missing_pm10,na.rm = T)*100,2),
+            so2 = round(mean(missing_so2,na.rm = T)*100,2),
+            no2 = round(mean(missing_no2,na.rm = T)*100,2),
+            o3 = round(mean(missing_o3,na.rm = T)*100,2),
+            co = round(mean(missing_co,na.rm = T)*100,2)) %>%
+  #filter(missing<=30) %>%
+  # 选择 top10
+  top_n(10, missing) %>%
+  arrange(desc(missing)) %>%
+  mutate(missing = color_tile("white", "coral")(missing)) %>%
+  add_column(rank = 1:10, .before = "station_name") %>%
+  `colnames<-`(c("","站点名","地区","省份", "平均缺失率（%）", 
+                 paste0(pollutants))) %>%
+  kable(escape = F, caption = "2015年平均缺失率最高10站点",  align = "c") #%>%
+  #kable_styling("striped")
+```
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, cache = F}
+data_new %>%
+  # select year
+  filter(year=="2016") %>%
+  # groupby 省份
+  group_by(station_name) %>%
+  # 计算各省份缺失率均值
+  summarise(area = area[1],
+            province = province[1],
+            missing = round(mean(missing,na.rm = T)*100,2),
+            pm2.5 = round(mean(missing_pm2_5,na.rm = T)*100,2),
+            pm10 = round(mean(missing_pm10,na.rm = T)*100,2),
+            so2 = round(mean(missing_so2,na.rm = T)*100,2),
+            no2 = round(mean(missing_no2,na.rm = T)*100,2),
+            o3 = round(mean(missing_o3,na.rm = T)*100,2),
+            co = round(mean(missing_co,na.rm = T)*100,2)) %>%
+  #filter(missing<=30) %>%
+  # 选择 top10
+  top_n(10, missing) %>%
+  arrange(desc(missing)) %>%
+  mutate(missing = color_tile("white", "coral")(missing)) %>%
+  add_column(rank = 1:10, .before = "station_name") %>%
+  `colnames<-`(c("","站点名","地区","省份", "平均缺失率（%）", 
+                 paste0(pollutants))) %>%
+  kable(escape = F, caption = "2016年平均缺失率最高10站点",  align = "c") #%>%
+  #kable_styling("striped")
+```
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, cache = F}
+data_new %>%
+  # select year
+  filter(year=="2017") %>%
+  # groupby 省份
+  group_by(station_name) %>%
+  # 计算各省份缺失率均值
+  summarise(area = area[1],
+            province = province[1],
+            missing = round(mean(missing,na.rm = T)*100,2),
+            pm2.5 = round(mean(missing_pm2_5,na.rm = T)*100,2),
+            pm10 = round(mean(missing_pm10,na.rm = T)*100,2),
+            so2 = round(mean(missing_so2,na.rm = T)*100,2),
+            no2 = round(mean(missing_no2,na.rm = T)*100,2),
+            o3 = round(mean(missing_o3,na.rm = T)*100,2),
+            co = round(mean(missing_co,na.rm = T)*100,2)) %>%
+  #filter(missing<=30) %>%
+  # 选择 top10
+  top_n(10, missing) %>%
+  arrange(desc(missing)) %>%
+  mutate(missing = color_tile("white", "coral")(missing)) %>%
+  add_column(rank = 1:10, .before = "station_name") %>%
+  `colnames<-`(c("","站点名","地区","省份", "平均缺失率(%)", 
+                 paste0(pollutants))) %>%
+  kable(escape = F, caption = "2017年平均缺失率最高10站点",  align = "c") #%>%
+  #kable_styling("striped")
+```
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, cache = F}
+data_new %>%
+  # select year
+  filter(year=="2018") %>%
+  # groupby 省份
+  group_by(station_name) %>%
+  # 计算各省份缺失率均值
+  summarise(area = area[1],
+            province = province[1],
+            missing = round(mean(missing,na.rm = T)*100,2),
+            pm2.5 = round(mean(missing_pm2_5,na.rm = T)*100,2),
+            pm10 = round(mean(missing_pm10,na.rm = T)*100,2),
+            so2 = round(mean(missing_so2,na.rm = T)*100,2),
+            no2 = round(mean(missing_no2,na.rm = T)*100,2),
+            o3 = round(mean(missing_o3,na.rm = T)*100,2),
+            co = round(mean(missing_co,na.rm = T)*100,2)) %>%
+  #filter(missing<=30) %>%
+  # 选择 top10
+  top_n(19, missing) %>%
+  arrange(desc(missing)) %>%
+  mutate(missing = color_tile("white", "coral")(missing)) %>%
+  add_column(rank = 1:19, .before = "station_name") %>%
+  `colnames<-`(c("","站点名","地区","省份", "平均缺失率(%)", 
+                 paste0(pollutants))) %>%
+  kable(escape = F, caption = "2018年平均缺失率最高19站点",  align = "c") #%>%
+  #column_spec(2,width="30em")
+  #kable_styling("striped")
+```
+
+##### 2. 2015-2018年各站点污染物浓度波动水平排名
+
+&emsp;&emsp;根据变异系数排名结果，可以得到如下结论：  
+
+* 2015年pm2.5浓度波动水平最高的10个站点集中在**西北地区**，且排名前三的站点都位于**甘肃省**；  
+
+* 2016年位于**西藏**的站点PM2.5波动水平相对较高；  
+
+* 2017、2018两年，pm2.5浓度波动水平最高的站点均主要分布在**华北、西北**两地区，华北地区以**内蒙古**为主；  
+
+* **整体pm2.5浓度波动水平最高的站点主要分布在西北和华北。有部分站点pm2.5波动水平一直处于较高水平，例如甘肃的公司二招、酒钢宾馆等站点。**
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, cache = F}
+data_new %>%
+  # select year
+  filter(year=="2015") %>%
+  # groupby 省份
+  group_by(station_name) %>%
+  # 计算各省份缺失率均值
+  summarise(area = area[1],
+            province = province[1],
+            pm2.5 = round(mean(cv_pm2_5,na.rm = T),2),
+            pm10 = round(mean(cv_pm10,na.rm = T),2),
+            so2 = round(mean(cv_so2,na.rm = T),2),
+            no2 = round(mean(cv_no2,na.rm = T),2),
+            o3 = round(mean(cv_o3,na.rm = T),2),
+            co = round(mean(cv_co,na.rm = T),2)) %>%
+  # 选择 top10
+  top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+  add_column(rank = 1:10, .before = "station_name") %>%
+  `colnames<-`(c("","站点名","地区","省份",
+                 paste0(pollutants, "变异系数"))) %>%
+  kable(escape = F, caption = "2015年PM2.5变异系数最高10站点",  align = "c") #%>%
+  #kable_styling("striped")
+```
+
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, cache = F}
+data_new %>%
+  # select year
+  filter(year=="2016") %>%
+  # groupby 省份
+  group_by(station_name) %>%
+  # 计算各省份缺失率均值
+  summarise(area = area[1],
+            province = province[1],
+            pm2.5 = round(mean(cv_pm2_5,na.rm = T),2),
+            pm10 = round(mean(cv_pm10,na.rm = T),2),
+            so2 = round(mean(cv_so2,na.rm = T),2),
+            no2 = round(mean(cv_no2,na.rm = T),2),
+            o3 = round(mean(cv_o3,na.rm = T),2),
+            co = round(mean(cv_co,na.rm = T),2)) %>%
+  # 选择 top10
+  top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+  add_column(rank = 1:11, .before = "station_name") %>%
+  `colnames<-`(c("","站点名","地区","省份", 
+                 paste0(pollutants, "变异系数"))) %>%
+  kable(escape = F, caption = "2016年PM2.5变异系数最高10站点",  align = "c") #%>%
+  #kable_styling("striped")
+```
+
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, cache = F}
+data_new %>%
+  # select year
+  filter(year=="2017") %>%
+  # groupby 省份
+  group_by(station_name) %>%
+  # 计算各省份缺失率均值
+  summarise(area = area[1],
+            province = province[1],
+            pm2.5 = round(mean(cv_pm2_5,na.rm = T),2),
+            pm10 = round(mean(cv_pm10,na.rm = T),2),
+            so2 = round(mean(cv_so2,na.rm = T),2),
+            no2 = round(mean(cv_no2,na.rm = T),2),
+            o3 = round(mean(cv_o3,na.rm = T),2),
+            co = round(mean(cv_co,na.rm = T),2)) %>%
+  # 选择 top10
+  top_n(10, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+  add_column(rank = 1:13, .before = "station_name") %>%
+  `colnames<-`(c("","站点名","地区","省份",
+                 paste0(pollutants, "变异系数"))) %>%
+  kable(escape = F, caption = "2017年PM2.5变异系数最高10站点",  align = "c") #%>%
+  #kable_styling("striped")
+```
+
+
+```{r echo = FALSE, message = FALSE, warning = FALSE, cache = F}
+data_new %>%
+  # select year
+  filter(year=="2018") %>%
+  # groupby 省份
+  group_by(station_name) %>%
+  # 计算各省份缺失率均值
+  summarise(area = area[1],
+            province = province[1],
+            pm2.5 = round(mean(cv_pm2_5,na.rm = T),2),
+            pm10 = round(mean(cv_pm10,na.rm = T),2),
+            so2 = round(mean(cv_so2,na.rm = T),2),
+            no2 = round(mean(cv_no2,na.rm = T),2),
+            o3 = round(mean(cv_o3,na.rm = T),2),
+            co = round(mean(cv_co,na.rm = T),2)) %>%
+  # 选择 top10
+  top_n(20, pm2.5) %>%
+  arrange(desc(pm2.5)) %>%
+  mutate(pm2.5 = color_tile("white", "coral")(pm2.5)) %>%
+  add_column(rank = 1:22, .before = "station_name") %>%
+  `colnames<-`(c("","站点名","地区","省份",
+                 paste0(pollutants, "变异系数"))) %>%
+  kable(escape = F, caption = "2018年PM2.5变异系数最高20站点",  align = "c") #%>%
+  #kable_styling("striped")
+```
+
+

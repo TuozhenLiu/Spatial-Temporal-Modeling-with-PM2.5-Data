@@ -1,0 +1,70 @@
+---
+title: "缺失率_年份_污染物_热图"
+output: html_document
+---
+
+```{r fig=TRUE, message = FALSE, warning = FALSE, cache = F, fig.height = 5, fig.width = 8, fig.align='center', fig.pos="H"}
+# 加载包
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+# 加载数据
+load(file = "../1.样本数据/1731国控站点污染物数据.RData")
+# 定义污染物因子顺序
+pollutants_sorted <- c("PM2.5", "PM10", "SO2", "NO2", "O3", "CO", "AVG")
+# 处理数据
+pollutants_data %>%
+  # 年份分组
+  group_by(year) %>%
+  # 计算各年份缺失率均值
+  summarise(
+  # 计算PM2.5
+    PM2.5 = mean(missing_pm2_5, na.rm = T),
+  # 计算PM10
+    PM10 = mean(missing_pm10, na.rm = T),
+  # 计算SO2
+    SO2 = mean(missing_so2, na.rm = T),
+  # 计算NO2
+    NO2 = mean(missing_no2, na.rm = T),
+  # 计算O3
+    O3 = mean(missing_o3, na.rm = T),
+  # 计算CO
+    CO = mean(missing_co, na.rm = T),
+  # 计算AVG
+    AVG = mean(missing, na.rm = T)
+  ) %>%
+  # 转换为热图需要的宽表
+  gather(key = pollutant, value = missing, -year) %>%
+  # 将污染物转化为因子型
+  mutate(pollutant = factor(pollutant, levels = pollutants_sorted)) %>%
+  # 画图
+  ggplot(aes(x = year, y = pollutant)) +
+  # 热图
+  geom_tile(aes(fill = missing * 100)) +
+  # 文字
+  geom_text(aes(label = sprintf("%1.2f", missing * 100)),
+            vjust = 1, col = "black") +
+  # 限制坐标轴范围
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  # 调整颜色
+  scale_fill_gradient2(
+    name = "缺失率(%)", low = "darkgreen",
+    mid = "yellow", high = "red3",
+    midpoint = 6
+  ) +
+  # 修改坐标轴标题
+  labs(x = "", y = "污染物") +
+  # 修改字体及背景
+  theme(
+    axis.text = element_text(face = "bold", size = 10, family = "STXihei"),
+    axis.title = element_text(face = "bold", size = 12, family = "STXihei"),
+    legend.title = element_text(family = "STXihei"),
+    panel.background = element_rect(fill = "transparent"),
+    panel.border = element_rect(
+      fill = "transparent",
+      color = "transparent"
+    ),
+    axis.line = element_line(color = "black")
+  ) 
+```

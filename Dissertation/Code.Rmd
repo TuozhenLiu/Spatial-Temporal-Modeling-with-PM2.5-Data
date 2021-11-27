@@ -1,0 +1,585 @@
+---
+title: "论文"
+author: "Tuozhen_liu"
+date: "4/4/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+source('~/Desktop/MYFUNCS.R')
+```
+#---------------------------------------
+# 尝试高新区
+```{r}
+df <- read.csv('~/Desktop/大气/站点小时数据/dataset_0311_TO_GB/Shijiazhuang_Gaoxinqu.csv')
+df %>% #filter(!is.na(PM2.5)) %>%
+  group_by(year, month) %>%
+  summarise(missing_rate = sum(is.na(PM2.5))/n()) %>% view()
+# 2010-2013缺失率较高, 用2014-2019建模
+```
+
+# 合并源数据
+```{r}
+files <- list.files('~/Desktop/大气/站点小时数据/dataset_0311_TO_GB/')
+df <- readEXCELlist('~/Desktop/大气/站点小时数据/dataset_0311_TO_GB/', type = 'csv', add_tag = T)[, -1]
+save(df, file = '河北2010-2017带控制变量小时数据.RData')
+
+df %>%
+  filter(year >= 2014, grepl('Shijiazhuang', tag)) %>%
+  mutate(station = case_when(
+    grepl('Gao', tag) ~ '高新区',
+    grepl('Ren', tag) ~ '人民会堂',
+    grepl('Shijig', tag) ~ '世纪公园',
+    grepl('Xibei', tag) ~ '西北水源',
+    grepl('Xinan', tag) ~ '西南高教',
+    grepl('Zhig', tag) ~ '职工医院'
+    ))-> df_sjz
+df_sjz %<>% select(1:11, 16:26, 28)
+save(df_sjz, file = '石家庄2014-2017带控制变量小时数据.RData')
+```
+
+# 高新区模型尝试
+```{r}
+#list(load(file = '石家庄2014-2017带控制变量小时数据.RData'))
+df_sjz %>%
+  filter(station == '高新区') -> df_gxq
+
+# df_gxq %>% fill(PM2.5, .direction = 'down') -> df_gxq_fill
+
+# acf(df_gxq_fill$PM2.5)
+# pacf(df_gxq_fill$PM2.5)
+
+# AR1
+df_gxq %<>% mutate(PM2.5_lag = lag(PM2.5))
+
+# SR1
+distance <- read.xlsx('sjz_distance.xlsx')
+distance %<>% 
+  mutate_at(2:ncol(.), ~ ifelse(.x == 0, NA, 1/.x)) %>%
+  mutate_at(2:ncol(.), ~ .x / sum(.x, na.rm = T))
+
+df_sjz %>% left_join(distance %>% select(station = X1, 权重 = 高新区)) %>%
+  group_by(year, month, day, hour) %>%
+  summarise(PM2.5_neighbor = sum(权重 * PM2.5, na.rm = T) / sum(ifelse(is.na(PM2.5), 0, 权重), na.rm = T)) %>%
+  right_join(df_gxq) %>%
+  ungroup() %>%
+  mutate(PM2.5_neighbor_lag = lag(PM2.5_neighbor)) -> df_gxq
+  
+df_gxq %<>% mutate(PM10_lag = lag(PM10),
+                   SO2_lag = lag(SO2),
+                   NO2_lag = lag(NO2),
+                   O3_lag = lag(O3),
+                   CO_lag = lag(CO))
+
+df_gxq %>% filter(year == 2017) -> df_gxq_test
+df_gxq %>% filter(year < 2016) -> df_gxq_train
+
+
+```
+
+## 1. 单变量时间自回归
+```{r}
+# AR1
+lm_ar1 <- lm(PM2.5 ~ PM2.5_lag , data = df_gxq_train)
+summary(lm_ar1)
+amse_ar1 <- mean(abs(predict(lm_ar1, df_gxq_test) - df_gxq_test$PM2.5), na.rm = T)
+```
+
+## 2. 单变量时空自回归
+```{r}
+# SR1
+lm_sr1 <- lm(PM2.5 ~ PM2.5_neighbor_lag, data = df_gxq_train)
+summary(lm_sr1)
+amse_sr1 <- mean(abs(predict(lm_sr1, df_gxq_test) - df_gxq_test$PM2.5), na.rm = T)
+
+# SAR1
+lm_sar1 <- lm(PM2.5 ~ PM2.5_lag + PM2.5_neighbor_lag, data = df_gxq_train)
+summary(lm_sar1)
+amse_sar1 <- mean(abs(predict(lm_sar1, df_gxq_test) - df_gxq_test$PM2.5), na.rm = T)
+```
+
+## 3. 加控制变量时间自回归
+```{r}
+# MAR1
+lm_mar1 <- lm(PM2.5 ~ PM2.5_lag + PRES + TEMP + DEWP + HUMI + cbwd  + Iws + I(PRES*PM2.5_lag) + I(TEMP*PM2.5_lag) + I(DEWP*PM2.5_lag) + I(HUMI*PM2.5_lag) + I(WSPM*PM2.5_lag) + I(Iws*PM2.5_lag), data = df_gxq_train)
+summary(lm_mar1)
+amse_mar1 <- mean(abs(predict(lm_mar1, df_gxq_test) - df_gxq_test$PM2.5), na.rm = T)
+```
+
+## 4. 加控制变量时空自回归
+```{r}
+# MSR1
+lm_msr1 <- lm(PM2.5 ~ PM2.5_neighbor_lag + PRES + TEMP + DEWP + HUMI + cbwd  + Iws, data = df_gxq_train)
+summary(lm_msr1)
+amse_msr1 <- mean(abs(predict(lm_msr1, df_gxq_test) - df_gxq_test$PM2.5), na.rm = T)
+
+# MSAR1
+lm_msar1 <- lm(PM2.5 ~ PM2.5_lag + PM2.5_neighbor_lag + PRES + TEMP  + Iws + I(Iws*PM2.5_lag) + I(Iws*PM2.5_neighbor_lag) + PM10_lag + CO_lag + SO2_lag + NO2_lag + O3_lag, data = df_gxq_train)
+summary(lm_msar1)
+vif(lm_msar1)
+amse_msar1 <- mean(abs(predict(lm_msar1, df_gxq_test) - df_gxq_test$PM2.5), na.rm = T)
+```
+
+#---------------------------------------
+# 石家庄市循环
+## 1.无差异
+### 预处理
+```{r}
+list(load(file = '石家庄2014-2017带控制变量小时数据.RData'))
+distance <- read.xlsx('sjz_distance.xlsx')
+# 反比例
+distance %<>% 
+  mutate_at(2:ncol(.), ~ ifelse(.x == 0, NA, 1/.x)) %>%
+  mutate_at(2:ncol(.), ~ .x / sum(.x, na.rm = T))
+
+df_neighbor <- data.frame()
+for (i in unique(df_sjz$station)) {
+  df_sjz %>% filter(station == i) -> df_temp
+  df_sjz %>% left_join(distance %>% select(station = X1, 权重 = !!sym(i))) %>%
+  group_by(year, month, day, hour) %>%
+  summarise(PM2.5_neighbor = sum(权重 * PM2.5, na.rm = T) / sum(ifelse(is.na(PM2.5), 0, 权重), na.rm = T)) %>%
+  mutate(station = i) %>%
+  ungroup() -> df_temp
+  df_neighbor %<>% bind_rows(df_temp)
+}
+
+df_sjz %<>% left_join(df_neighbor)
+
+df_sjz %<>% mutate(PM2.5_lag = lag(PM2.5),
+                   PM2.5_neighbor_lag = lag(PM2.5_neighbor),
+                   PM10_lag = lag(PM10),
+                   SO2_lag = lag(SO2),
+                   NO2_lag = lag(NO2),
+                   O3_lag = lag(O3),
+                   CO_lag = lag(CO))
+
+df_sjz %>% filter(year == 2017) -> df_sjz_test
+df_sjz %>% filter(year < 2017) -> df_sjz_train
+```
+
+### 建模
+paste0(round(broom::tidy(lm_msar1)$estimate,3), ' ***')
+#### 1. 时间自回归+控制变量
+```{r}
+# AR1
+lm_ar1 <- lm(PM2.5 ~ PM2.5_lag + PRES + TEMP  + Iws + I(Iws*PM2.5_lag), data = df_sjz_train)
+summary(lm_ar1)
+mae_ar1 <- mean(abs(predict(lm_ar1, df_sjz_test) - df_sjz_test$PM2.5), na.rm = T)
+rmse_ar1 <- sqrt(mean((predict(lm_ar1, df_sjz_test) - df_sjz_test$PM2.5)^2, na.rm = T))
+```
+
+#### 2. 时空自回归+控制变量（同期邻居）
+```{r}
+# SR1
+lm_sr1 <- lm(PM2.5 ~ PM2.5_neighbor + PRES + TEMP  + Iws + I(Iws*PM2.5_lag), data = df_sjz_train)
+summary(lm_sr1)
+mae_sr1 <- mean(abs(predict(lm_sr1, df_sjz_test) - df_sjz_test$PM2.5), na.rm = T)
+rmse_sr1 <- sqrt(mean((predict(lm_sr1, df_sjz_test) - df_sjz_test$PM2.5)^2, na.rm = T))
+
+# SAR1
+lm_sar1 <- lm(PM2.5 ~ PM2.5_lag + PM2.5_neighbor + PRES + TEMP  + Iws + I(Iws*PM2.5_lag), data = df_sjz_train)
+summary(lm_sar1)
+mae_sar1 <- mean(abs(predict(lm_sar1, df_sjz_test) - df_sjz_test$PM2.5), na.rm = T)
+rmse_sar1 <- sqrt(mean((predict(lm_sar1, df_sjz_test) - df_sjz_test$PM2.5)^2, na.rm = T))
+```
+
+#### 3. 时空自回归+PM10+控制变量（同期邻居）
+```{r}
+# MSR1
+lm_msr1 <- lm(PM2.5 ~ PM2.5_neighbor + PRES + TEMP  + Iws + I(Iws*PM2.5_lag) + PM10 + CO + SO2 + NO2 + O3, data = df_sjz_train)
+summary(lm_msr1)
+mae_msr1 <- mean(abs(predict(lm_msr1, df_sjz_test) - df_sjz_test$PM2.5), na.rm = T)
+rmse_msr1 <- sqrt(mean((predict(lm_msr1, df_sjz_test) - df_sjz_test$PM2.5)^2, na.rm = T))
+
+
+# MSAR1
+lm_msar1 <- lm(PM2.5 ~ PM2.5_lag + PM2.5_neighbor + PM10 + CO + SO2 + NO2 + O3 + PRES + TEMP  + Iws + I(Iws*PM2.5_lag), data = df_sjz_train)
+summary(lm_msar1)
+
+mae_msar1 <- mean(abs(predict(lm_msar1, df_sjz_test) - df_sjz_test$PM2.5), na.rm = T)
+rmse_msar1 <- sqrt(mean((predict(lm_msar1, df_sjz_test) - df_sjz_test$PM2.5)^2, na.rm = T))
+
+```
+
+##### 3.5 模型诊断
+```{r}
+vif(lm_msar1) %>% round(2)
+par(mfrow = c(1, 1))
+
+
+library(lmtest)
+bptest(lm_msar1)
+
+shapiro.test(lm_msar1$residuals)
+```
+
+#### 4. 季节模型
+```{r}
+
+df_sjz_train_1 <- df_sjz_train %>% filter(month %in% c(12,1,2))
+df_sjz_train_2 <- df_sjz_train %>% filter(month %in% c(3,4,5))
+df_sjz_train_3 <- df_sjz_train %>% filter(month %in% c(6,7,8))
+df_sjz_train_4 <- df_sjz_train %>% filter(month %in% c(9,10,11))
+
+# 春季
+lm_msar1_sp <- lm(PM2.5 ~ PM2.5_lag + PM2.5_neighbor + PM10 + CO + SO2 + NO2 + O3 + PRES + TEMP  + Iws + I(Iws*PM2.5_lag), data = df_sjz_train_1)
+
+summary(lm_msar1_sp)
+broom::tidy(lm_msar1_sp ) %>% mutate_if(is.numeric, ~round(.x, 2)) -> aaa
+
+# 夏季
+lm_msar1_su <- lm(PM2.5 ~ PM2.5_lag + PM2.5_neighbor + PM10 + CO + SO2 + NO2 + O3 + PRES + TEMP  + Iws + I(Iws*PM2.5_lag), data = df_sjz_train_2)
+
+summary(lm_msar1_su)
+broom::tidy(lm_msar1_su) %>% mutate_if(is.numeric, ~round(.x, 2)) -> aaa
+
+# 秋季
+lm_msar1_a <- lm(PM2.5 ~ PM2.5_lag + PM2.5_neighbor + PM10 + CO + SO2 + NO2 + O3 + PRES + TEMP  + Iws + I(Iws*PM2.5_lag), data = df_sjz_train_3)
+
+summary(lm_msar1_a)
+broom::tidy(lm_msar1_a) %>% mutate_if(is.numeric, ~round(.x, 2)) -> aaa
+
+# 冬季
+lm_msar1_w <- lm(PM2.5 ~ PM2.5_lag + PM2.5_neighbor + PM10 + CO + SO2 + NO2 + O3 + PRES + TEMP  + Iws + I(Iws*PM2.5_lag), data = df_sjz_train_4)
+
+summary(lm_msar1_w)
+broom::tidy(lm_msar1_w) %>% mutate_if(is.numeric, ~round(.x, 2)) -> aaa
+
+rmse_msar1_w <- sqrt(mean((predict(lm_msar1_w, df_sjz_test) - df_sjz_test$PM2.5)^2, na.rm = T))
+```
+
+##### 预测比较
+```{r}
+df_sjz_test %>%
+  select(year, month, day, hour, station, 实际值 = PM2.5) %>%
+  bind_cols(data.frame(冬季MSAR预测值= predict(lm_msar1_w, df_sjz_test))) %>%
+  bind_cols(data.frame(MSAR预测值= predict(lm_msar1, df_sjz_test))) %>%
+  pivot_longer(6:8, names_to = 'type', values_to = 'PM2.5') -> df_temp
+
+df_temp %>%
+  mutate(年月日小时 = paste0(year, '-', str_pad(string = month, width = 2, side = 'left', pad = '0'), '-', str_pad(string = day, width = 2, side = 'left', pad = '0'), ' ', str_pad(string = hour, width = 2, side = 'left', pad = '0'), ':00')) %>%
+  mutate(type = factor(type, levels = c('冬季MSAR预测值', 'MSAR预测值', 'AR预测值', '实际值'))) %>%
+  filter(station == '高新区') %>%
+  ggplot(aes(x = 年月日小时, y = PM2.5, color = type)) +
+  geom_line(aes(group = type), size = 0.5) +
+  scale_x_discrete(breaks = c('2017-01-01 00:00', '2017-01-15 00:00', '2017-02-01 00:00', '2017-02-15 00:00', '2017-02-28 00:00'), labels = c('2017-01-01', '2017-01-15', '2017-02-01', '2017-02-15', '2017-02-28'),expand = c(0.05,0)) +
+  scale_color_manual(values = c('cyan', 'gold', 'darkcyan'), labels = c('冬季MSAR（RMSE：27.51）', 'MSAR（RMSE：28.04）', '实际值')) +
+  labs(x = '', color = '', y = 'PM2.5浓度') +
+  theme_cowplot() +
+  theme(
+    axis.text = element_text(face = "bold", size = 10, family = "STXihei"),
+    axis.title.y = element_text(face = "bold", size = 12, family = "STXihei"),
+    legend.title = element_text(family = "STXihei"),
+    legend.position = "top",
+    panel.background = element_rect(fill = "transparent"),
+    panel.border = element_rect(
+      fill = "transparent",
+      color = "transparent"
+    ),
+    axis.line = element_line(color = "black"),
+    strip.text = element_text(face = "bold",size=12),
+    strip.background = element_rect(fill="white"),
+    legend.text = element_text(family = "STXihei", size=12)
+  )
+  
+```
+
+
+#---------------------------------------
+# 描述性分析
+
+## -1. summary
+```{r}
+summary(df_sjz)
+df_sjz %>% apply(., FUN = RatioOfNA, MARGIN = 2)
+```
+
+## 0. 原始数据缺失情况
+```{r}
+df_sjz %>%
+  # 年份分组
+  group_by(station, year) %>%
+  # 计算各年份缺失率均值
+  summarise(missing = sum(is.na(PM2.5))/n()) %>%
+  # 将年份转化为因子型
+  mutate(year=factor(year)) %>%
+  # 画图
+  ggplot() +
+  # 柱状图
+  geom_bar(aes(x = station, y = missing), 
+           stat = "identity", 
+           fill = "lightblue") +
+  # 文字
+  geom_text(aes(x = station, y = missing/2,
+            label = paste0(round(100 * missing, 2), "%")),
+            col = "black", size = 4) +
+  # 纵坐标改为百分数显示
+  scale_y_continuous(limits = c(0, 0.1), labels = scales::percent_format()) +
+  facet_wrap(~year, nrow = 2,scale="free") +
+  # 修改坐标轴标题
+  labs(x='', y='PM2.5浓度缺失率') +
+  # 修改字体及背景
+  theme(axis.text = element_text(face = "bold",size=10,family = "STXihei"), 
+        axis.title.y = element_text(face = "bold",size=12,family = "STXihei"),
+        panel.background = element_rect(fill = "transparent"),
+        panel.border=element_rect(fill='transparent', 
+                                  color='transparent'),
+        axis.line = element_line(color = "black"),
+        strip.text = element_text(face = "bold",size=12),
+        strip.background =element_rect(fill="white"))
+```
+
+## 0. 浓度
+```{r}
+# 处理数据
+df_sjz %>%
+ # 地区、年份分组
+  group_by(station, year, month) %>%
+  # 计算各地区年份变异系数均值
+  summarise(
+  # 计算PM2.5
+    avg = mean(PM2.5, na.rm = T)
+  ) %>% 
+  ungroup() %>%
+  add_row(year = 2017, month = 3:12, station = '高新区', avg = NA) %>%
+  # 转换为热图需要的宽表
+  #pivot_wider(names_from = year, values_from = avg) %>%
+  # 画图
+  ggplot(aes(x = factor(month), y = station)) +
+  # 热图
+  geom_tile(aes(fill = avg)) +
+  # 文字
+  geom_text(aes(label = ifelse(!is.na(avg), sprintf("%1.0f", avg), NA)),
+            vjust = 1, col = "black") +
+  # 限制坐标轴范围
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  
+  facet_wrap(~year, nrow = 2,scale="free") +
+  # 调整颜色
+  scale_fill_gradient2(
+    name = "浓度", low = "darkgreen",
+    mid = "yellow", high = "red3",
+    midpoint = 140, na.value = 'white'
+  ) +
+  # 修改坐标轴标题
+  labs(x = "", y = "") +
+  # 修改字体及背景
+  theme(
+    axis.text = element_text(face = "bold", size = 10, family = "STXihei"),
+    axis.title.y = element_text(face = "bold", size = 12, family = "STXihei"),
+    legend.title = element_text(family = "STXihei"),
+    panel.background = element_rect(fill = "transparent"),
+    panel.border = element_rect(
+      fill = "transparent",
+      color = "transparent"
+    ),
+    axis.line = element_line(color = "black"),
+    strip.text = element_text(face = "bold",size=12),
+    strip.background =element_rect(fill="white")
+  )
+```
+
+## 1. 时间相关性
+```{r}
+df_sjz %>%
+  ggplot(aes(x = PM2.5_lag, y = PM2.5)) +
+  geom_point(size = 0.01, alpha = 0.4) +
+  theme_cowplot()
+
+cor(df_sjz %>% filter(!is.na(PM2.5*PM2.5_lag)) %>% select(PM2.5, PM2.5_lag))
+
+temp <-df_sjz %>% filter(!is.na(PM2.5*PM2.5_lag))
+acf(temp$PM2.5)
+pacf(temp$PM2.5)
+```
+## 2. 空间相关性
+```{r}
+df_sjz %>%
+  ggplot(aes(x = PM2.5_neighbor, y = PM2.5)) +
+  geom_point(size = 0.01) +
+  theme_cowplot()
+
+cor(df_sjz %>% filter(!is.na(PM2.5*PM2.5_neighbor)) %>% select(PM2.5, PM2.5_neighbor))
+
+```
+## 3. 污染物相关性
+```{r}
+p1 = df_sjz %>%
+  ggplot(aes(x = PM10, y = PM2.5)) +
+  geom_point(size = 0.01) +
+  theme_cowplot()
+
+p2 = df_sjz %>%
+  ggplot(aes(x = SO2, y = PM2.5)) +
+  geom_point(size = 0.01) +
+  theme_cowplot()
+p3 = df_sjz %>%
+  ggplot(aes(x = NO2, y = PM2.5)) +
+  geom_point(size = 0.01) +
+  theme_cowplot()
+p4 = df_sjz %>%
+  ggplot(aes(x = O3, y = PM2.5)) +
+  geom_point(size = 0.01) +
+  theme_cowplot()
+
+grid.arrange(p1,p2,p3,p4, nrow = 2)
+
+cor(df_sjz %>% filter(!is.na(PM2.5*PM10)) %>% select(PM2.5, PM10))
+cor(df_sjz %>% filter(!is.na(PM2.5*SO2)) %>% select(PM2.5, SO2))
+cor(df_sjz %>% filter(!is.na(PM2.5*NO2)) %>% select(PM2.5, NO2))
+cor(df_sjz %>% filter(!is.na(PM2.5*O3)) %>% select(PM2.5, O3))
+
+```
+## 4. 控制变量相关性
+```{r}
+summary(df_sjz)
+
+p1 = df_sjz %>%
+  ggplot(aes(x = PRES, y = PM2.5)) +
+  geom_point(size = 0.01) +
+  theme_cowplot()+
+  theme(axis.title = element_text(family="STXihei", face="bold"))
+
+# p2 = df_sjz %>%
+#   ggplot(aes(x = TEMP, y = PM2.5)) +
+#   geom_point(size = 0.01) +
+#   theme_cowplot()+
+#   theme(axis.title = element_text(family="STXihei", face="bold"))
+
+# p2 = 
+df_sjz %>%
+  mutate(TEMP_group = case_when(TEMP <= 3.800 ~ '<=3.8',
+                                TEMP > 3.800 & TEMP <= 14.900 ~ '(3.8,14.9]',
+                                TEMP > 14.900 & TEMP <= 23.70 ~ '(14.9,23.7]',
+                                TRUE ~ '>23.7')) %>%
+  mutate(TEMP_group = factor(TEMP_group, levels = c('<=3.8', '(3.8,14.9]', '(14.9,23.7]', '>23.7'))) %>%
+  ggplot(aes(y = TEMP_group, x = PM2.5, fill = 0.5 - abs(0.5 - stat(ecdf)))) +
+  stat_density_ridges(geom = "density_ridges_gradient", calc_ecdf = T) +
+  scale_fill_viridis_c(name = '尾部概率', direction = -1) +
+  scale_x_continuous(limits = c(NA, 600)) +
+  scale_y_discrete(labels = c('低温', '中低温', '中高温', '高温')) +
+  labs(x = 'PM2.5浓度', y = '') + 
+  theme_cowplot(font_family = 'STXihei') +
+  theme(axis.title = element_text(family="STXihei", face="bold"),
+        legend.title = element_text(family="STXihei", face="bold"))
+
+# p3 = df_sjz %>%
+#   ggplot(aes(x = Iws, y = PM2.5)) +
+#   geom_point(size = 0.01) +
+#   theme_cowplot() +
+#   theme(axis.title = element_text(family="STXihei", face="bold"))
+
+p3 = df_sjz %>%
+  mutate(Iws_group = case_when(Iws <= 1.100 ~ '<=1.1',
+                                Iws > 1.100 & Iws <= 2.700 ~ '(1.1,2.7]',
+                                Iws > 2.700 & Iws <= 7.600 ~ '(2.7,7.6]',
+                                TRUE ~ '>7.6')) %>%
+  mutate(Iws_group = factor(Iws_group, levels = c('<=1.1', '(1.1,2.7]', '(2.7,7.6]', '>7.6'))) %>%
+  ggplot(aes(y = Iws_group, x = PM2.5, fill = 0.5 - abs(0.5 - stat(ecdf)))) +
+  labs(y = 'PM2.5浓度的对数', x = 'Iws') + 
+  geom_boxplot() +
+  theme_cowplot() +
+  theme(axis.title = element_text(family="STXihei", face="bold"))
+
+p4 = df_sjz %>%
+  mutate(Iws_group = case_when(Iws <= 1.100 ~ '<=1.1',
+                                Iws > 1.100 & Iws <= 2.700 ~ '(1.1,2.7]',
+                                Iws > 2.700 & Iws <= 7.600 ~ '(2.7,7.6]',
+                                TRUE ~ '>7.6')) %>%
+  mutate(Iws_group = factor(Iws_group, levels = c('<=1.1', '(1.1,2.7]', '(2.7,7.6]', '>7.6'))) %>%
+  group_by(station, Iws_group) %>%
+  filter(!is.na(PM2.5*PM2.5_lag)) %>%
+  summarise(cor = cor(PM2.5, PM2.5_lag)) %>%
+  #filter(cor >= 0.85) %>%
+  ggplot(aes(x = Iws_group, y = cor)) +
+  labs(y = 'PM2.5的一阶自相关系数', x = 'Iws') + 
+  geom_boxplot() +
+  theme_cowplot() +
+  theme(axis.title = element_text(family="STXihei", face="bold"))
+
+grid.arrange(p1,p2,p3,p4, nrow = 2)
+
+```
+
+```{r}
+df_sjz %>%
+  mutate(气温 = case_when(TEMP <= 3.800 ~ '低',
+                                TEMP > 3.800 & TEMP <= 14.900 ~ '中低',
+                                TEMP > 14.900 & TEMP <= 23.70 ~ '中高',
+                                TRUE ~ '高')) %>%
+  mutate(风速 = case_when(Iws <= 1.100 ~ '低',
+                                Iws > 1.100 & Iws <= 2.700 ~ '中低',
+                                Iws > 2.700 & Iws <= 7.600 ~ '中高',
+                                TRUE ~ '高')) %>%
+  mutate(气压 = case_when(PRES <= 996.6 ~ '低',
+                                PRES > 996.6 & PRES <= 1004.8 ~ '中低',
+                                PRES > 1004.8 & PRES <= 1013.3 ~ '中高',
+                                TRUE ~ '高')) %>%
+  select(PM2.5, 气温, 风速, 气压) %>%
+  pivot_longer(-1, names_to = 'type', values_to = 'group') %>%
+  mutate(group = factor(group, levels = c('低', '中低', '中高', '高'))) %>%
+  mutate(type = factor(type, levels = c('气压', '气温', '风速'))) %>%
+  ggplot(aes(y = group, x = PM2.5, fill = 0.5 - abs(0.5 - stat(ecdf)))) +
+  stat_density_ridges(geom = "density_ridges_gradient", calc_ecdf = T) +
+  scale_fill_viridis_c(name = '尾部概率', direction = -1, option = 'D') +
+  scale_x_continuous(limits = c(NA, 400)) +
+  labs(x = 'PM2.5浓度', y = '') + 
+  #scale_y_discrete(labels = c('低温', '中低温', '中高温', '高温')) +
+  facet_wrap(~type, nrow = 2, scale="free") +
+  theme_cowplot(font_family = 'STXihei') +
+  theme(axis.title = element_text(family="STXihei", face="bold"),
+        axis.text.x = element_text(family="STXihei", size = 8),
+        legend.title = element_text(family="STXihei", face="bold"),
+        legend.text = element_text(family="STXihei", size = 8),
+        # 修改子图标题字体
+        strip.text = element_text(face = "bold", size=12),
+        # 修改子图标题背景
+        strip.background =element_rect(fill="lightgrey"))
+
+df_sjz %>%
+   mutate(Iws_group = case_when(Iws <= 1.100 ~ '低',
+                                Iws > 1.100 & Iws <= 2.700 ~ '中低',
+                                Iws > 2.700 & Iws <= 7.600 ~ '中高',
+                                TRUE ~ '高')) %>%
+  mutate(Iws_group = factor(Iws_group, levels = c('低', '中低', '中高', '高'))) %>%
+  group_by(year, station, Iws_group) %>%
+  filter(!is.na(PM2.5*PM2.5_lag)) %>%
+  summarise(cor = cor(PM2.5, PM2.5_lag)) %>%
+  filter(cor >= 0.88) %>%
+  ggplot(aes(x = Iws_group, y = cor, fill = Iws_group)) +
+  scale_fill_manual(values = co) +
+  labs(y = 'PM2.5的一阶自相关系数', x = '风速') + 
+  geom_violin(trim = F) +
+  geom_boxplot(width = 0.4, outlier.shape = 19, outlier.size = 1) +
+  theme_cowplot(font_family = 'STXihei') +
+  theme(axis.title = element_text(family="STXihei", face="bold"),
+        legend.position = 'none')
+
+co = RColorBrewer::brewer.pal(n = 11, name = 'RdYlBu')[c(8, 7, 5, 4)]
+
+df_sjz %>%
+   mutate(Iws_group = case_when(Iws <= 1.100 ~ '低',
+                                Iws > 1.100 & Iws <= 2.700 ~ '中低',
+                                Iws > 2.700 & Iws <= 7.600 ~ '中高',
+                                TRUE ~ '高')) %>%
+  mutate(Iws_group = factor(Iws_group, levels = c('低', '中低', '中高', '高'))) %>%
+  group_by(year, station, Iws_group) %>%
+  filter(!is.na(PM2.5*PM2.5_lag)) %>%
+  summarise(cor = cor(PM2.5, PM2.5_lag)) %>%
+  #ungroup() %>%
+  filter(cor >= 0.88) %>%
+  ggbetweenstats(x = Iws_group, y = cor, ggtheme = ggplot2::theme_classic(base_family = 'STXihei') + 
+theme(axis.title = element_text(face="bold", size = 12),
+      axis.text = element_text(face="bold", size = 10)) , xlab = '风速', ylab = 'PM2.5的一阶自相关系数')
+```
+
+
+#---------------------------------------
+# 异常值检测
+```{r}
+
+```
+
